@@ -1,0 +1,84 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 3000,
+    "cors": {
+      "origin": "*",
+      "credentials": false
+    }
+  },
+  "redis": {
+    "url": "redis://localhost:6379/0"
+  },
+  "postgresql": {
+    "url": "postgres://user:pass@localhost:5432/grokbot",
+    "poolSize": 10,
+    "ssl": false
+  },
+  "pubky": {
+    "homeserverUrl": "https://example.com",
+    "botSecretKey": "dummy-secret-key-for-dev",
+    "mentionPolling": {
+      "enabled": true,
+      "intervalSeconds": 10,
+      "batchSize": 20
+    }
+  },
+  "ai": {
+    "primaryProvider": "${AI_PRIMARY_PROVIDER}",
+    "fallbackProviders": "${AI_FALLBACK_PROVIDERS}",
+    "apiKeys": {
+      "openai": "${OPENAI_API_KEY}",
+      "anthropic": "${ANTHROPIC_API_KEY}",
+      "groq": "${GROQ_API_KEY}",
+      "openrouter": "${OPENROUTER_API_KEY}"
+    },
+    "models": {
+      "summary": "${AI_MODEL_SUMMARY}",
+      "factcheck": "${AI_MODEL_FACTCHECK}",
+      "classifier": "${AI_MODEL_CLASSIFIER}"
+    },
+    "maxTokens": {
+      "summary": "${AI_MAX_TOKENS_SUMMARY}",
+      "factcheck": "${AI_MAX_TOKENS_FACTCHECK}",
+      "classifier": "${AI_MAX_TOKENS_CLASSIFIER}"
+    },
+    "classifier": {
+      "temperature": "${AI_CLASSIFIER_TEMPERATURE}"
+    }
+  },
+  "search": {
+    "braveMcp": {
+      "endpoint": "http://localhost:8921",
+      "apiKey": ""
+    }
+  },
+  "features": {
+    "summary": true,
+    "factcheck": true,
+    "translate": false,
+    "image": false
+  },
+  "limits": {
+    "maxConcurrentActions": 4,
+    "defaultTimeoutMs": 30000
+  },
+  "safety": {
+    "wordlist": [
+      "banned1",
+      "banned2"
+    ],
+    "blockOnMatch": true
+  },
+  "mcp": {
+    "brave": {
+      "enabled": true,
+      "baseUrl": "http://localhost:8921",
+      "connectTimeoutMs": 5000,
+      "toolName": "brave_search",
+      "maxResults": 5,
+      "timeoutMs": 10000,
+      "headers": {}
+    }
+  }
+}

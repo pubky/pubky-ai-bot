@@ -1,0 +1,26 @@
+{
+  "server": {
+    "port": 3000
+  },
+  "postgresql": {
+    "url": "${DATABASE_URL}"
+  },
+  "redis": {
+    "url": "${REDIS_URL}"
+  },
+  "pubky": {
+    "homeserverUrl": "${PUBKY_HOMESERVER_URL}",
+    "botSecretKey": "${PUBKY_BOT_SECRET_KEY}"
+  },
+  "ai": {
+    "primaryProvider": "groq"
+  },
+  "mcp": {
+    "brave": {
+      "baseUrl": "${BRAVE_MCP_BASE_URL}",
+      "headers": {
+        "Authorization": "${BRAVE_MCP_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "server": {
+    "port": "${PORT}",
+    "host": "0.0.0.0"
+  },
+  "postgresql": {
+    "ssl": true
+  },
+  "pubky": {
+    "mentionPolling": {
+      "intervalSeconds": 5
+    }
+  },
+  "limits": {
+    "maxConcurrentActions": 8
+  }
+}
