@@ -1,17 +1,26 @@
 {
   "server": {
-    "port": "${PORT}",
-    "host": "0.0.0.0"
+    "port": 3000
   },
   "postgresql": {
-    "ssl": true
+    "url": "${DATABASE_URL}"
+  },
+  "redis": {
+    "url": "${REDIS_URL}"
   },
   "pubky": {
-    "mentionPolling": {
-      "intervalSeconds": 5
-    }
+    "homeserverUrl": "${PUBKY_HOMESERVER_URL}",
+    "botSecretKey": "${PUBKY_BOT_SECRET_KEY}"
   },
-  "limits": {
-    "maxConcurrentActions": 8
+  "ai": {
+    "primaryProvider": "${AI_PRIMARY_PROVIDER}"
+  },
+  "mcp": {
+    "brave": {
+      "baseUrl": "${BRAVE_MCP_BASE_URL}",
+      "headers": {
+        "Authorization": "${BRAVE_MCP_TOKEN}"
+      }
+    }
   }
 }

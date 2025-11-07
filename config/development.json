@@ -13,7 +13,7 @@
     "botSecretKey": "${PUBKY_BOT_SECRET_KEY}"
   },
   "ai": {
-    "primaryProvider": "groq"
+    "primaryProvider": "${AI_PRIMARY_PROVIDER}"
   },
   "mcp": {
     "brave": {
