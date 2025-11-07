@@ -2,7 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- mentions: raw ingestion and processing state
-CREATE TABLE mentions (
+CREATE TABLE IF NOT EXISTS mentions (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mention_id      TEXT UNIQUE NOT NULL,
   post_id         TEXT NOT NULL,
@@ -14,11 +14,11 @@ CREATE TABLE mentions (
   last_error      TEXT
 );
 
-CREATE INDEX idx_mentions_status ON mentions(status);
-CREATE INDEX idx_mentions_received_at ON mentions(received_at);
+CREATE INDEX IF NOT EXISTS idx_mentions_status ON mentions(status);
+CREATE INDEX IF NOT EXISTS idx_mentions_received_at ON mentions(received_at);
 
 -- action executions: when an action runs for a mention
-CREATE TABLE action_executions (
+CREATE TABLE IF NOT EXISTS action_executions (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mention_id       TEXT NOT NULL REFERENCES mentions(mention_id) ON DELETE CASCADE,
   action_id        TEXT NOT NULL,  -- 'summary' | 'factcheck' | ...
@@ -29,23 +29,23 @@ CREATE TABLE action_executions (
   error_json       JSONB
 );
 
-CREATE INDEX idx_action_exec_mention ON action_executions(mention_id);
-CREATE INDEX idx_action_exec_action ON action_executions(action_id);
-CREATE INDEX idx_action_exec_status ON action_executions(status);
+CREATE INDEX IF NOT EXISTS idx_action_exec_mention ON action_executions(mention_id);
+CREATE INDEX IF NOT EXISTS idx_action_exec_action ON action_executions(action_id);
+CREATE INDEX IF NOT EXISTS idx_action_exec_status ON action_executions(status);
 
 -- artifacts: stored outputs (summary, evidence, sources)
-CREATE TABLE artifacts (
+CREATE TABLE IF NOT EXISTS artifacts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   action_execution_id UUID NOT NULL REFERENCES action_executions(id) ON DELETE CASCADE,
   type               TEXT NOT NULL, -- 'summary'|'evidence'|'sources'|...
   payload_json       JSONB NOT NULL
 );
 
-CREATE INDEX idx_artifacts_exec ON artifacts(action_execution_id);
-CREATE INDEX idx_artifacts_type ON artifacts(type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_exec ON artifacts(action_execution_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(type);
 
 -- replies: published replies for auditability
-CREATE TABLE replies (
+CREATE TABLE IF NOT EXISTS replies (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mention_id    TEXT NOT NULL REFERENCES mentions(mention_id) ON DELETE CASCADE,
   parent_uri    TEXT NOT NULL,
@@ -54,11 +54,11 @@ CREATE TABLE replies (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_replies_mention ON replies(mention_id);
-CREATE INDEX idx_replies_created_at ON replies(created_at);
+CREATE INDEX IF NOT EXISTS idx_replies_mention ON replies(mention_id);
+CREATE INDEX IF NOT EXISTS idx_replies_created_at ON replies(created_at);
 
 -- routing decisions (optional audit trail)
-CREATE TABLE routing_decisions (
+CREATE TABLE IF NOT EXISTS routing_decisions (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mention_id    TEXT NOT NULL REFERENCES mentions(mention_id) ON DELETE CASCADE,
   intent        TEXT NOT NULL, -- 'summary' | 'factcheck' | 'unknown'
@@ -67,5 +67,5 @@ CREATE TABLE routing_decisions (
   decided_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_routing_decisions_mention ON routing_decisions(mention_id);
-CREATE INDEX idx_routing_decisions_intent ON routing_decisions(intent);
+CREATE INDEX IF NOT EXISTS idx_routing_decisions_mention ON routing_decisions(mention_id);
+CREATE INDEX IF NOT EXISTS idx_routing_decisions_intent ON routing_decisions(intent);

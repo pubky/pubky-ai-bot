@@ -10,7 +10,7 @@ export const ConfigSchema = z.object({
     })
   }),
   redis: z.object({
-    url: z.string().url()
+    url: z.string().min(1) // Redis URL with redis:// protocol
   }),
   postgresql: z.object({
     url: z.string(),
@@ -18,8 +18,13 @@ export const ConfigSchema = z.object({
     ssl: z.boolean()
   }),
   pubky: z.object({
-    homeserverUrl: z.string().url(),
-    botSecretKey: z.string().min(1),
+    network: z.enum(['mainnet', 'testnet']).default('testnet'),
+    homeserverUrl: z.string().min(1), // Can be URL or pubkey
+    botMnemonic: z.string().min(1), // REQUIRED: 12-24 word mnemonic phrase
+    nexusApiUrl: z.string().optional(), // Nexus API base URL
+    authUsername: z.string().optional(), // HTTP Basic Auth username
+    authPassword: z.string().optional(), // HTTP Basic Auth password
+    // botPublicKey is now derived from mnemonic, not configured
     mentionPolling: z.object({
       enabled: z.boolean(),
       intervalSeconds: z.number().min(1).max(300),
@@ -51,7 +56,7 @@ export const ConfigSchema = z.object({
   }),
   search: z.object({
     braveMcp: z.object({
-      endpoint: z.string().url(),
+      endpoint: z.string().min(1), // MCP endpoint URL
       apiKey: z.string().optional()
     })
   }),
@@ -72,9 +77,8 @@ export const ConfigSchema = z.object({
   mcp: z.object({
     brave: z.object({
       enabled: z.boolean(),
-      baseUrl: z.string().url(),
+      baseUrl: z.string().min(1), // MCP server base URL
       connectTimeoutMs: z.number().min(1000).max(30000),
-      toolName: z.string(),
       maxResults: z.number().min(1).max(20),
       timeoutMs: z.number().min(1000).max(60000),
       headers: z.record(z.string()).optional()

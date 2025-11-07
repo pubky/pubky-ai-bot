@@ -5,24 +5,63 @@ import logger from '@/utils/logger';
 import { extractKeywords } from '@/utils/text';
 
 export class ThreadService {
+  private cache: Map<string, Post> = new Map();
+  private visited: Set<string> = new Set();
+
   constructor(private pubkyService: PubkyService) {}
 
+  /**
+   * Build thread context from a mention post URI
+   * Fetches parents recursively and builds complete conversation thread
+   */
   async buildThreadContext(
-    rootPostId: string,
-    maxDepth: number = 5
+    mentionPostUri: string,
+    options: {
+      maxDepth?: number;
+      maxPosts?: number;
+      includeParents?: boolean;
+    } = {}
   ): Promise<ThreadContext> {
     try {
-      logger.debug('Building thread context', { rootPostId, maxDepth });
+      const maxDepth = options.maxDepth || 50;
+      const maxPosts = options.maxPosts || 500;
+      const includeParents = options.includeParents !== false;
 
-      // Get root post
-      const rootPost = await this.pubkyService.getPostById(rootPostId);
-      if (!rootPost) {
-        throw new Error(`Root post not found: ${rootPostId}`);
+      logger.debug('Building thread context', {
+        mentionPostUri,
+        maxDepth,
+        maxPosts,
+        includeParents
+      });
+
+      // Reset state
+      this.cache.clear();
+      this.visited.clear();
+
+      // Fetch the mention post
+      const mentionPost = await this.fetchPost(mentionPostUri);
+      if (!mentionPost) {
+        throw new Error(`Failed to fetch mention post: ${mentionPostUri}`);
       }
 
-      // Get all posts in thread
-      const allPosts = await this.pubkyService.buildThreadPosts(rootPostId, maxDepth);
-      const posts = [rootPost, ...allPosts];
+      const posts: Post[] = [mentionPost];
+
+      // Build upward (fetch parents)
+      if (includeParents && mentionPost.parentUri) {
+        logger.debug('Fetching parent posts...');
+        const parents = await this.fetchParents(mentionPost, maxDepth);
+        posts.push(...parents);
+      }
+
+      // Sort posts chronologically
+      posts.sort((a, b) => {
+        const timeA = new Date(a.createdAt).getTime();
+        const timeB = new Date(b.createdAt).getTime();
+        return timeA - timeB;
+      });
+
+      // Find root post (earliest post without parent)
+      const rootPost = this.findRootPost(posts);
 
       // Extract participants
       const participants = [...new Set(posts.map(p => p.authorId))];
@@ -36,14 +75,17 @@ export class ThreadService {
       const allContent = posts.map(p => p.content).join(' ');
       const topics = extractKeywords(allContent);
 
+      // Calculate actual depth
+      const depth = Math.max(...posts.map(p => this.calculatePostDepth(p, posts)));
+
       // Determine completeness
-      const isComplete = posts.length < 100; // Assume complete if under limit
+      const isComplete = posts.length < maxPosts;
 
       const context: ThreadContext = {
         rootPost,
         posts,
         participants,
-        depth: maxDepth,
+        depth,
         totalTokens,
         isComplete,
         metadata: {
@@ -56,6 +98,7 @@ export class ThreadService {
       logger.debug('Thread context built', {
         postCount: posts.length,
         participants: participants.length,
+        depth,
         totalTokens,
         isComplete
       });
@@ -66,6 +109,116 @@ export class ThreadService {
       logger.error('Failed to build thread context:', error);
       throw error;
     }
+  }
+
+  /**
+   * Fetch a single post with caching
+   */
+  private async fetchPost(postUri: string): Promise<Post | null> {
+    // Check cache
+    if (this.cache.has(postUri)) {
+      return this.cache.get(postUri)!;
+    }
+
+    // Check if already visited (prevent cycles)
+    if (this.visited.has(postUri)) {
+      return null;
+    }
+
+    this.visited.add(postUri);
+
+    try {
+      const post = await this.pubkyService.getPost(postUri);
+      if (post) {
+        this.cache.set(postUri, post);
+      }
+      return post;
+    } catch (error) {
+      logger.error(`Failed to fetch post ${postUri}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch all parent posts recursively up the thread
+   */
+  private async fetchParents(post: Post, maxDepth: number): Promise<Post[]> {
+    const parents: Post[] = [];
+    const visitedParents = new Set<string>(); // Detect circular references
+    let currentPost = post;
+    let depth = 1;
+
+    while (currentPost.parentUri && depth <= maxDepth) {
+      // Check for circular reference
+      if (visitedParents.has(currentPost.parentUri)) {
+        logger.warn(`Circular parent reference detected at depth ${depth}`);
+        break;
+      }
+      visitedParents.add(currentPost.parentUri);
+
+      // Show progress for deep threads
+      if (depth > 1 && depth % 10 === 0) {
+        logger.debug(`Fetching parent ${depth}/${maxDepth}...`);
+      }
+
+      const parent = await this.fetchPost(currentPost.parentUri);
+      if (!parent) break;
+
+      parents.push(parent);
+      currentPost = parent;
+      depth++;
+    }
+
+    // Warn if we hit the depth limit
+    if (depth > maxDepth && currentPost.parentUri) {
+      logger.warn(`Thread exceeds maxDepth (${maxDepth}), some parents not fetched`);
+    }
+
+    if (parents.length > 0) {
+      logger.debug(`Fetched ${parents.length} parent post(s)`);
+    }
+
+    return parents;
+  }
+
+  /**
+   * Find the root post in a thread (post without parent or earliest)
+   */
+  private findRootPost(posts: Post[]): Post {
+    // Find post with no parent
+    const postsWithoutParent = posts.filter(p => !p.parentUri);
+    if (postsWithoutParent.length > 0) {
+      // Return earliest post without parent
+      return postsWithoutParent.reduce((earliest, current) => {
+        const earliestTime = new Date(earliest.createdAt).getTime();
+        const currentTime = new Date(current.createdAt).getTime();
+        return currentTime < earliestTime ? current : earliest;
+      });
+    }
+
+    // If all posts have parents, return earliest post
+    return posts.reduce((earliest, current) => {
+      const earliestTime = new Date(earliest.createdAt).getTime();
+      const currentTime = new Date(current.createdAt).getTime();
+      return currentTime < earliestTime ? current : earliest;
+    });
+  }
+
+  /**
+   * Calculate depth of a post in the thread
+   */
+  private calculatePostDepth(post: Post, allPosts: Post[]): number {
+    let depth = 0;
+    let currentPost = post;
+
+    while (currentPost.parentUri) {
+      depth++;
+      const parent = allPosts.find(p => p.uri === currentPost.parentUri);
+      if (!parent) break;
+      currentPost = parent;
+    }
+
+    return depth;
   }
 
   validate(context: ThreadContext): ThreadValidation {

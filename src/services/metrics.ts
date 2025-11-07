@@ -20,21 +20,21 @@ export class MetricsService {
 
     // Initialize counters
     this.mentionsTotal = new client.Counter({
-      name: 'grok_mentions_total',
+      name: 'pubky_mentions_total',
       help: 'Total number of mentions processed',
       labelNames: ['status'],
       registers: [this.registry]
     });
 
     this.actionsTotal = new client.Counter({
-      name: 'grok_actions_total',
+      name: 'pubky_actions_total',
       help: 'Total number of actions executed',
       labelNames: ['action', 'status'],
       registers: [this.registry]
     });
 
     this.repliesTotal = new client.Counter({
-      name: 'grok_replies_total',
+      name: 'pubky_replies_total',
       help: 'Total number of replies published',
       labelNames: ['action'],
       registers: [this.registry]
@@ -42,7 +42,7 @@ export class MetricsService {
 
     // Initialize histograms
     this.actionDuration = new client.Histogram({
-      name: 'grok_action_duration_seconds',
+      name: 'pubky_action_duration_seconds',
       help: 'Action execution time in seconds',
       labelNames: ['action'],
       buckets: [0.1, 0.5, 1, 2, 5, 10, 30],
@@ -50,7 +50,7 @@ export class MetricsService {
     });
 
     this.llmDuration = new client.Histogram({
-      name: 'grok_llm_duration_seconds',
+      name: 'pubky_llm_duration_seconds',
       help: 'LLM request duration in seconds',
       labelNames: ['kind'],
       buckets: [0.1, 0.5, 1, 2, 5, 10],
@@ -58,7 +58,7 @@ export class MetricsService {
     });
 
     this.mcpDuration = new client.Histogram({
-      name: 'grok_mcp_duration_seconds',
+      name: 'pubky_mcp_duration_seconds',
       help: 'MCP tool call duration in seconds',
       labelNames: ['tool'],
       buckets: [0.1, 0.5, 1, 2, 5, 10],
@@ -66,7 +66,7 @@ export class MetricsService {
     });
 
     this.pubkyPublishDuration = new client.Histogram({
-      name: 'grok_pubky_publish_duration_seconds',
+      name: 'pubky_pubky_publish_duration_seconds',
       help: 'Pubky publish duration in seconds',
       buckets: [0.1, 0.5, 1, 2, 5],
       registers: [this.registry]

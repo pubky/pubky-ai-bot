@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -37,7 +38,7 @@ import { errorHandler, notFoundHandler } from '@/api/error-handler';
 import appConfig from '@/config';
 import logger from '@/utils/logger';
 
-class GrokBotServer {
+class PubkyBot {
   private app: express.Application;
   private server: any;
 
@@ -66,9 +67,8 @@ class GrokBotServer {
   constructor() {
     this.app = express();
     this.setupMiddleware();
-    this.initializeServices();
-    this.setupRoutes();
-    this.setupErrorHandling();
+    // NOTE: setupErrorHandling() is called in start() AFTER routes are registered
+    // This is critical - error handlers must be registered last or they intercept all requests
   }
 
   private setupMiddleware(): void {
@@ -89,7 +89,7 @@ class GrokBotServer {
     });
   }
 
-  private initializeServices(): void {
+  private async initializeServices(): Promise<void> {
     // Core infrastructure
     this.eventBus = new EventBus();
     this.idempotency = new IdempotencyService();
@@ -100,8 +100,8 @@ class GrokBotServer {
     this.metricsService = new MetricsService();
     this.mcpClient = new McpClientService();
 
-    // Domain services
-    this.pubkyService = new PubkyService();
+    // Domain services - PubkyService must be initialized with async factory pattern
+    this.pubkyService = await PubkyService.create();
     this.threadService = new ThreadService(this.pubkyService);
     this.replyService = new ReplyService(this.pubkyService, this.safetyService);
     this.classifierService = new ClassifierService(this.aiService);
@@ -168,7 +168,7 @@ class GrokBotServer {
     // Root endpoint
     this.app.get('/', (req, res) => {
       res.json({
-        name: 'Grok Bot v2',
+        name: 'Pubky AI Bot',
         version: '1.0.0',
         status: 'running',
         timestamp: new Date().toISOString()
@@ -176,6 +176,12 @@ class GrokBotServer {
     });
   }
 
+  /**
+   * Setup error handlers - MUST be called AFTER setupRoutes()
+   *
+   * CRITICAL: Express middleware order matters. These handlers catch unmatched
+   * routes and errors. If registered before routes, they intercept ALL requests.
+   */
   private setupErrorHandling(): void {
     this.app.use(notFoundHandler);
     this.app.use(errorHandler);
@@ -183,10 +189,19 @@ class GrokBotServer {
 
   async start(): Promise<void> {
     try {
-      logger.info('Starting Grok Bot v2...');
+      logger.info('Starting Pubky AI Bot...');
 
       // Connect to infrastructure
       await this.connectInfrastructure();
+
+      // Initialize services (must be done after infrastructure is connected)
+      await this.initializeServices();
+
+      // Setup routes (must be done after services are initialized)
+      this.setupRoutes();
+
+      // Setup error handlers (MUST be after routes, or 404 handler intercepts everything)
+      this.setupErrorHandling();
 
       // Initialize event bus
       await this.eventBus.initializeStreams();
@@ -209,7 +224,7 @@ class GrokBotServer {
       // Start mention polling
       await this.poller.start();
 
-      logger.info('Grok Bot v2 started successfully', {
+      logger.info('Pubky AI Bot started successfully', {
         port: appConfig.server.port,
         environment: process.env.NODE_ENV,
         features: appConfig.features
@@ -233,6 +248,12 @@ class GrokBotServer {
     if (!dbHealthy) {
       throw new Error('Database connection failed');
     }
+
+    // Run database migrations
+    logger.info('Running database migrations...');
+    const { DatabaseMigrator } = await import('@/infrastructure/database/migrator');
+    const migrator = new DatabaseMigrator();
+    await migrator.runMigrations();
 
     logger.info('Infrastructure connections established');
   }
@@ -274,11 +295,13 @@ class GrokBotServer {
   }
 
   async stop(): Promise<void> {
-    logger.info('Stopping Grok Bot v2...');
+    logger.info('Stopping Pubky AI Bot...');
 
     try {
-      // Stop poller first
-      await this.poller.stop();
+      // Stop poller first (if initialized)
+      if (this.poller) {
+        await this.poller.stop();
+      }
 
       // Stop HTTP server
       if (this.server) {
@@ -287,14 +310,16 @@ class GrokBotServer {
         });
       }
 
-      // Close MCP client
-      await this.mcpClient.close();
+      // Close MCP client (if initialized)
+      if (this.mcpClient) {
+        await this.mcpClient.close();
+      }
 
       // Close infrastructure connections
       await redis.disconnect();
       await db.close();
 
-      logger.info('Grok Bot v2 stopped successfully');
+      logger.info('Pubky AI Bot stopped successfully');
 
     } catch (error) {
       logger.error('Error during shutdown:', error);
@@ -307,7 +332,7 @@ class GrokBotServer {
 }
 
 // Handle process signals
-function setupSignalHandlers(server: GrokBotServer): void {
+function setupSignalHandlers(server: PubkyBot): void {
   const signals = ['SIGINT', 'SIGTERM'];
 
   signals.forEach((signal) => {
@@ -331,7 +356,7 @@ function setupSignalHandlers(server: GrokBotServer): void {
 
 // Start server if this file is run directly
 if (require.main === module) {
-  const server = new GrokBotServer();
+  const server = new PubkyBot();
 
   setupSignalHandlers(server);
 
@@ -341,4 +366,4 @@ if (require.main === module) {
   });
 }
 
-export default GrokBotServer;
+export default PubkyBot;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '@/api/error-handler';
 import logger from '@/utils/logger';
+import appConfig from '@/config';
 
 interface HealthServices {
   db: { healthCheck: () => Promise<boolean> };
@@ -56,6 +57,9 @@ export function createHealthRouter(services: HealthServices) {
       version: process.env.npm_package_version || '1.0.0',
       uptime: process.uptime(),
       responseTime: Date.now() - startTime,
+      pubky: {
+        network: appConfig.pubky.network || 'testnet'
+      },
       services: serviceChecks.reduce((acc, check) => {
         acc[check.service] = {
           status: check.status,

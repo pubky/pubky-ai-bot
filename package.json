@@ -1,7 +1,7 @@
 {
-  "name": "grok-bot-v2",
+  "name": "pubky-ai-bot",
   "version": "1.0.0",
-  "description": "Action-centric Pubky bot with PostgreSQL, Redis Streams, and AI classification",
+  "description": "AI-powered Pubky bot with PostgreSQL, Redis Streams, and intelligent response generation",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/server.ts",
@@ -27,15 +27,20 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/anthropic": "^2.0.40",
+    "@ai-sdk/groq": "^2.0.27",
     "@ai-sdk/mcp": "^0.0.1",
-    "@ai-sdk/openai": "^1.0.0",
-    "ai": "^3.0.0",
+    "@ai-sdk/openai": "^2.0.59",
+    "@synonymdev/pubky": "^0.6.0-rc.6",
+    "ai": "^5.0.85",
+    "bip39": "^3.1.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
     "pg": "^8.11.3",
     "prom-client": "^15.1.0",
+    "pubky-app-specs": "^0.4.0",
     "redis": "^4.6.10",
     "winston": "^3.11.0",
     "zod": "^3.22.4"

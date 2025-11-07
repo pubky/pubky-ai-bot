@@ -21,7 +21,7 @@ export class SummaryTemplates {
 
     // Add confidence indicator for low confidence summaries
     if (metrics.confidence === 'low') {
-      replyContent.summary += '\n\n⚠️ Summary may be incomplete due to thread size or complexity.';
+      replyContent.summary += '\n\nWARNING: Summary may be incomplete due to thread size or complexity.';
     }
 
     return replyContent;
@@ -83,7 +83,7 @@ export class SummaryTemplates {
 
     // Add metadata for transparency
     if (result.metrics.confidence === 'low') {
-      detailed += '\n\n⚠️ Summary confidence is low - thread may be incomplete or very complex.';
+      detailed += '\n\nWARNING: Summary confidence is low - thread may be incomplete or very complex.';
     }
 
     return detailed;

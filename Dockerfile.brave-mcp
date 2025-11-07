@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+# Install wget for healthcheck
+RUN apk add --no-cache wget
+
+# Set working directory
+WORKDIR /app
+
+# Install the correct Brave Search MCP server that supports HTTP
+RUN npm install -g @brave/brave-search-mcp-server
+
+# Expose the HTTP transport port
+EXPOSE 8921
+
+
+# Start the Brave Search MCP server with HTTP transport
+CMD npx @brave/brave-search-mcp-server \
+    --transport http \
+    --port 8921

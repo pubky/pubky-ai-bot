@@ -67,7 +67,7 @@ export class ReplyService {
     }
 
     if (content.confidence === 'low') {
-      reply += '\n\n⚠️ Low confidence; limited sources available.';
+      reply += '\n\nWARNING: Low confidence; limited sources available.';
     }
 
     return truncateText(reply, 800);

@@ -55,12 +55,8 @@ export class AIService {
           return createAnthropic({ apiKey });
         }
         case 'groq': {
-          // Groq custom implementation using OpenAI-compatible API
-          const { createOpenAI } = await import('@ai-sdk/openai');
-          return createOpenAI({
-            apiKey,
-            baseURL: 'https://api.groq.com/openai/v1'
-          });
+          const { createGroq } = await import('@ai-sdk/groq');
+          return createGroq({ apiKey });
         }
         case 'openrouter': {
           // OpenRouter custom implementation using OpenAI-compatible API
@@ -169,7 +165,6 @@ export class AIService {
             generateText({
               model,
               prompt,
-              maxTokens,
               tools: options?.tools,
               maxRetries: options?.maxRetries || 1
             }),
@@ -220,8 +215,8 @@ export class AIService {
               model,
               schema,
               prompt,
-              maxTokens,
-              temperature
+              temperature,
+              maxRetries: 1
             }),
             timeout
           );

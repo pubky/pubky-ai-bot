@@ -11,13 +11,17 @@
     "url": "redis://localhost:6379/0"
   },
   "postgresql": {
-    "url": "postgres://user:pass@localhost:5432/grokbot",
+    "url": "postgres://user:pass@localhost:5432/pubkybot",
     "poolSize": 10,
     "ssl": false
   },
   "pubky": {
-    "homeserverUrl": "https://example.com",
-    "botSecretKey": "dummy-secret-key-for-dev",
+    "network": "${PUBKY_NETWORK}",
+    "homeserverUrl": "${PUBKY_HOMESERVER_URL}",
+    "botMnemonic": "${PUBKY_BOT_MNEMONIC}",
+    "nexusApiUrl": "${PUBKY_NEXUS_API_URL}",
+    "authUsername": "${PUBKY_AUTH_USERNAME}",
+    "authPassword": "${PUBKY_AUTH_PASSWORD}",
     "mentionPolling": {
       "enabled": true,
       "intervalSeconds": 10,
@@ -75,7 +79,6 @@
       "enabled": true,
       "baseUrl": "http://localhost:8921",
       "connectTimeoutMs": 5000,
-      "toolName": "brave_search",
       "maxResults": 5,
       "timeoutMs": 10000,
       "headers": {}

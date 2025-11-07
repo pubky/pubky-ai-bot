@@ -3,7 +3,7 @@
     "port": 0
   },
   "postgresql": {
-    "url": "postgres://test:test@localhost:5432/grokbot_test"
+    "url": "postgres://test:test@localhost:5432/pubkybot_test"
   },
   "redis": {
     "url": "redis://localhost:6379/15"

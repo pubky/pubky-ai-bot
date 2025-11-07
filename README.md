@@ -1,17 +1,44 @@
-# Grok Bot v2 - Action-Centric Architecture
+# Pubky AI Bot
 
-A modern, scalable Pubky bot with PostgreSQL, Redis Streams, AI classification, and MCP integration for factchecking and summarization.
+AI-powered bot for the Pubky decentralized social network. Automatically responds to mentions with intelligent summaries and fact-checking.
 
-## Features
+## Quick Start with Docker Compose
 
-- **Action-Centric Architecture**: Uniform workers consume action-specific events
-- **AI-Powered Classification**: Heuristics + LLM routing for intent detection
-- **Summary Generation**: Thread summarization with key points extraction
-- **Fact Checking**: Claim verification using MCP integration with Brave search
-- **Event-Driven**: Redis Streams for reliable message processing
-- **Idempotent**: Built-in idempotency for safe operation
-- **Observable**: Prometheus metrics and comprehensive health checks
-- **Safe**: Configurable safety wordlist and content filtering
+**1. Clone and setup environment:**
+```bash
+git clone <repository-url>
+cd jeb-bot
+cp .env.example .env
+```
+
+**2. Edit `.env` and add your required configuration:**
+```bash
+# Required: Bot authentication (generate at https://iancoleman.io/bip39/)
+PUBKY_BOT_MNEMONIC="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+
+# Required: AI provider (Groq is free for development)
+AI_PRIMARY_PROVIDER=groq
+GROQ_API_KEY=gsk_your_groq_key_here
+
+# Optional: Brave Search API for fact-checking
+BRAVE_API_KEY=your_brave_api_key
+```
+
+**3. Start all services:**
+```bash
+docker compose up -d
+```
+
+**4. Check logs:**
+```bash
+docker compose logs -f pubky-ai-bot
+```
+
+**5. Stop services:**
+```bash
+docker compose down
+```
+
 
 ## Architecture
 
@@ -27,60 +54,47 @@ Mentions → Poller → Router → Action Workers → Reply Publisher
                 Safety Check + Reply
 ```
 
-## Tech Stack
+## Configuration
 
-- **Runtime**: Node.js 20+, TypeScript
-- **Database**: PostgreSQL (primary) + Redis (events/cache)
-- **AI**: Vercel AI SDK with OpenAI/Anthropic providers
-- **Search**: MCP integration with Brave Search API
-- **Events**: Redis Streams for reliable message processing
-- **Monitoring**: Prometheus metrics, Winston logging
-- **Validation**: Zod schemas, comprehensive type safety
+### Required Environment Variables
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js >= 20
-- npm >= 9
-- Redis >= 6 with Streams
-- PostgreSQL >= 14
-- Pubky credentials (bot secret key and homeserver URL)
-- Optional: Anthropic or OpenAI API key
-- Optional: MCP Brave server running on HTTP
-
-### Environment Setup
-
-Copy `.env.example` to `.env` and configure:
-
-```bash
-cp .env.example .env
-```
-
-Required variables:
 ```env
-NODE_ENV=development
-DATABASE_URL=postgres://user:pass@localhost:5432/grokbot
-REDIS_URL=redis://localhost:6379/0
-PUBKY_HOMESERVER_URL=https://homeserver.example
-PUBKY_BOT_SECRET_KEY=your-secret-or-mnemonic
-ANTHROPIC_API_KEY=sk-ant-...
-BRAVE_MCP_BASE_URL=http://localhost:8921
+# Bot Authentication
+PUBKY_BOT_MNEMONIC="your 12-24 word mnemonic"
+
+# AI Provider
+AI_PRIMARY_PROVIDER=groq  # or: openai, anthropic, openrouter
+GROQ_API_KEY=gsk_...      # Get from: https://console.groq.com
 ```
 
-### Installation
+### Optional Environment Variables
+
+```env
+# Network (default: testnet)
+PUBKY_NETWORK=testnet
+
+# AI Configuration
+AI_MODEL_SUMMARY=llama-3.1-8b-instant
+AI_MODEL_FACTCHECK=llama-3.1-8b-instant
+AI_MODEL_CLASSIFIER=llama-3.1-8b-instant
+
+# Brave Search (for fact-checking)
+BRAVE_API_KEY=your_key
+
+# Database (only if not using Docker Compose)
+DATABASE_URL=postgres://user:pass@localhost:5432/pubkybot
+REDIS_URL=redis://localhost:6379/0
+```
+
+See `.env.example` for complete configuration options.
+
+## Development
+
+### Local Development (without Docker)
 
 ```bash
 # Install dependencies
 npm ci
-
-# Install AI SDK provider (choose one)
-npm i ai @ai-sdk/anthropic
-# OR
-npm i ai @ai-sdk/openai
-
-# Install MCP client
-npm i @ai-sdk/mcp
 
 # Run database migrations
 npm run db:migrate
@@ -91,21 +105,18 @@ npm run dev
 
 ### Production Deployment
 
-For production, run components separately:
-
 ```bash
 # Build
 npm run build
 
-# Start poller + router (single instance)
-npm start
+# Start all services
+docker compose -f docker-compose.yml up -d
 
-# Start workers (multiple instances)
-NODE_ENV=production WORKER_TYPE=summary npm start
-NODE_ENV=production WORKER_TYPE=factcheck npm start
+# Or run components separately for horizontal scaling
+npm start  # Start poller + router (single instance)
+NODE_ENV=production WORKER_TYPE=summary npm start     # Scale these
+NODE_ENV=production WORKER_TYPE=factcheck npm start   # horizontally
 ```
-
-All processes share Redis and PostgreSQL. Scale workers horizontally by running multiple instances.
 
 ## API Endpoints
 
@@ -157,44 +168,6 @@ Key configuration sections:
 
 **Output**: Verdict (accurate/mixed/inaccurate/unverifiable) + top 2-3 sources
 
-## Development
-
-### Scripts
-
-```bash
-npm run dev          # Development server with hot reload
-npm run build        # Compile TypeScript to dist/
-npm start           # Run compiled server
-npm run db:migrate  # Run database migrations
-npm test            # Run test suite
-npm run test:watch  # Run tests in watch mode
-npm run lint        # ESLint check
-npm run lint:fix    # Fix ESLint issues
-npm run format      # Format code with Prettier
-npm run typecheck   # TypeScript type checking
-```
-
-### Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Watch mode for development
-npm run test:watch
-```
-
-### Code Quality
-
-The project enforces code quality through:
-
-- **TypeScript**: Strict mode with comprehensive type checking
-- **ESLint**: Code linting with TypeScript rules
-- **Prettier**: Consistent code formatting
-- **Jest**: Unit and integration testing
 
 ## Architecture Details
 
@@ -216,9 +189,9 @@ The project enforces code quality through:
 
 ### Redis Streams
 
-- Event buses: `grok:mention_received`, `grok:action_summary_requested`, etc.
+- Event buses: `pubky:mention_received`, `pubky:action_summary_requested`, etc.
 - Consumer groups: `router`, `summary-workers`, `factcheck-workers`
-- Dead letter queue: `grok:dlq` for failed message handling
+- Dead letter queue: `pubky:dlq` for failed message handling
 
 ### Idempotency
 
@@ -241,12 +214,12 @@ TTL: 24 hours (configurable)
 
 ### Metrics (Prometheus)
 
-- `grok_mentions_total{status}` - Mentions processed
-- `grok_actions_total{action,status}` - Actions executed
-- `grok_replies_total{action}` - Replies published
-- `grok_action_duration_seconds{action}` - Action execution time
-- `grok_llm_duration_seconds{kind}` - LLM request latency
-- `grok_mcp_duration_seconds{tool}` - MCP tool latency
+- `pubky_mentions_total{status}` - Mentions processed
+- `pubky_actions_total{action,status}` - Actions executed
+- `pubky_replies_total{action}` - Replies published
+- `pubky_action_duration_seconds{action}` - Action execution time
+- `pubky_llm_duration_seconds{kind}` - LLM request latency
+- `pubky_mcp_duration_seconds{tool}` - MCP tool latency
 
 ### Logging
 
@@ -261,47 +234,3 @@ Structured JSON logging with:
 - **Application**: Individual service health status
 - **Dependencies**: Database, Redis, MCP client connectivity
 - **Workers**: Action worker availability and processing capability
-- **Kubernetes**: Separate liveness/readiness endpoints
-
-## Production Considerations
-
-### Scaling
-
-- **Horizontal**: Run multiple worker instances per action type
-- **Vertical**: Increase concurrency limits and timeouts
-- **Database**: Connection pooling with configurable pool sizes
-- **Redis**: Clustering for high availability
-
-### Security
-
-- **Secrets**: Environment variables only, never committed
-- **Safety**: Comprehensive content filtering before publishing
-- **Rate Limiting**: Built-in sliding window rate limiting (optional)
-- **Input Validation**: Zod schemas for all configuration and data
-
-### Deployment
-
-- **Docker**: Multi-stage builds for optimized images
-- **Kubernetes**: Health checks, resource limits, HPA support
-- **CI/CD**: Automated testing, linting, security scanning
-- **Monitoring**: Grafana dashboards, alerting rules
-
-## Roadmap
-
-**Phase 1 (Current)**: Summary + Factcheck actions with MCP integration
-**Phase 2**: Translation action, evidence API, improved caching
-**Phase 3**: Image generation action, advanced safety, streaming
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Run tests: `npm test`
-4. Run linting: `npm run lint`
-5. Commit changes: `git commit -m 'Add amazing feature'`
-6. Push to branch: `git push origin feature/amazing-feature`
-7. Open a Pull Request
-
-## License
-
-MIT License - see LICENSE file for details.

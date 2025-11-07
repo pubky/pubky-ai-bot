@@ -6,8 +6,8 @@ import logger from '@/utils/logger';
 
 export class EventBus {
   private streams: RedisStreams;
-  private readonly STREAM_PREFIX = 'grok';
-  private readonly DLQ_STREAM = 'grok:dlq';
+  private readonly STREAM_PREFIX = 'pubky';
+  private readonly DLQ_STREAM = 'pubky:dlq';
 
   constructor() {
     this.streams = new RedisStreams();
