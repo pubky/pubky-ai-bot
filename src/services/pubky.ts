@@ -258,7 +258,7 @@ export class PubkyService {
   async fetchMentionsFromNexus(options: {
     limit?: number;
     offset?: number;
-  } = {}): Promise<Mention[]> {
+  } = {}): Promise<{ mentions: Mention[]; notificationCount: number }> {
     this.assertInitialized();
 
     try {
@@ -315,7 +315,9 @@ export class PubkyService {
 
       const data: unknown = await response.json();
 
-      logger.info(`Received ${Array.isArray(data) ? data.length : 0} notification(s) from Nexus`);
+      // Track raw notification count before deduplication
+      const notificationCount = Array.isArray(data) ? data.length : 0;
+      logger.info(`Received ${notificationCount} notification(s) from Nexus`);
 
       // Transform Nexus notifications to Mention format
       const mentions: Mention[] = [];
@@ -470,8 +472,8 @@ export class PubkyService {
         }
       }
 
-      logger.info(`Processed ${mentions.length} unique mention(s)`);
-      return mentions;
+      logger.info(`Processed ${mentions.length} unique mention(s) from ${notificationCount} notification(s)`);
+      return { mentions, notificationCount };
 
     } catch (error) {
       logger.error('Failed to fetch mentions from Nexus:', error);

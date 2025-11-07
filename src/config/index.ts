@@ -153,9 +153,13 @@ function processSpecialValues(obj: any): any {
 
       return obj;
     }
+    // Handle empty strings (especially for AI_FALLBACK_PROVIDERS)
+    if (obj === '') {
+      return undefined;
+    }
     // Handle comma-separated arrays
     if (obj.includes(',')) {
-      return obj.split(',').map(s => s.trim());
+      return obj.split(',').map(s => s.trim()).filter(s => s.length > 0);
     }
     // Handle numeric strings
     if (/^\d+$/.test(obj)) {

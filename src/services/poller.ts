@@ -131,17 +131,26 @@ export class MentionPoller {
 
     try {
       // Fetch mentions from Nexus API using offset-based pagination
-      const mentions = await this.pubkyService.fetchMentionsFromNexus({
+      const result = await this.pubkyService.fetchMentionsFromNexus({
         limit: appConfig.pubky.mentionPolling.batchSize,
         offset: this.lastProcessedOffset
       });
 
+      const { mentions, notificationCount } = result;
+
       if (mentions.length === 0) {
         logger.debug('No new mentions found');
+        // Still need to advance offset if we received notifications but all were duplicates
+        if (notificationCount > 0) {
+          const newOffset = this.lastProcessedOffset + notificationCount;
+          await this.persistOffset(newOffset);
+          this.lastProcessedOffset = newOffset;
+          logger.debug(`Advanced offset by ${notificationCount} notification(s) (all duplicates)`);
+        }
         return;
       }
 
-      logger.info(`Found ${mentions.length} new mentions`);
+      logger.info(`Found ${mentions.length} new mentions from ${notificationCount} notifications`);
 
       // Process mentions in parallel with concurrency limit
       // CRITICAL: This will throw if ANY mention fails, preventing offset advancement below
@@ -149,11 +158,12 @@ export class MentionPoller {
 
       // Update offset transactionally (only reached if ALL mentions processed successfully)
       // If processInParallel() threw, we never reach here, so offset stays at last known good value
-      if (mentions.length > 0) {
-        const newOffset = this.lastProcessedOffset + mentions.length;
+      // CRITICAL: Advance by notificationCount (raw count), not mentions.length (deduplicated count)
+      if (notificationCount > 0) {
+        const newOffset = this.lastProcessedOffset + notificationCount;
         await this.persistOffset(newOffset);
         this.lastProcessedOffset = newOffset;
-        logger.debug(`Updated offset to ${this.lastProcessedOffset}`);
+        logger.debug(`Updated offset to ${this.lastProcessedOffset} (advanced by ${notificationCount} notifications)`);
       }
 
       logger.debug(`Processed ${mentions.length} mentions successfully`);
