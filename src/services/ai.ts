@@ -200,10 +200,14 @@ export class AIService {
   async generateObject<T>(
     prompt: string,
     schema: any,
-    purpose: 'classifier' = 'classifier'
+    purpose: 'classifier' | 'factcheck' = 'classifier'
   ): Promise<{ object: T; usage?: any; provider?: ProviderName }> {
     const maxTokens = appConfig.ai.maxTokens[purpose];
-    const temperature = purpose === 'classifier' ? appConfig.ai.classifier.temperature : undefined;
+    const temperature = purpose === 'classifier'
+      ? appConfig.ai.classifier.temperature
+      : purpose === 'factcheck'
+        ? 0.3 // Lower temperature for factchecking (more deterministic)
+        : undefined;
     const timeout = appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 

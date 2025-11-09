@@ -7,6 +7,9 @@
       "credentials": false
     }
   },
+  "logging": {
+    "level": "${LOG_LEVEL}"
+  },
   "redis": {
     "url": "redis://localhost:6379/0"
   },
@@ -77,7 +80,8 @@
   "mcp": {
     "brave": {
       "enabled": true,
-      "baseUrl": "http://localhost:8921",
+      "transport": "sse",
+      "baseUrl": "http://localhost:8921/mcp",
       "connectTimeoutMs": 5000,
       "maxResults": 5,
       "timeoutMs": 10000,

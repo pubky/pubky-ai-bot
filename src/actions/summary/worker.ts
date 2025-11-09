@@ -38,7 +38,7 @@ export class SummaryWorker {
     const data = event.data as ActionRequestedV1;
     const runId = generateRunId();
 
-    logger.info('Processing summary request', {
+    logger.debug('Processing summary request', {
       mentionId: data.mentionId,
       postId: data.postId,
       runId,
@@ -63,7 +63,7 @@ export class SummaryWorker {
         return;
       }
 
-      logger.info('Summary action completed', {
+      logger.debug('Summary action completed', {
         mentionId: data.mentionId,
         runId,
         success: result.result?.success

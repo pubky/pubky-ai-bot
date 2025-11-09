@@ -209,7 +209,7 @@ class PubkyBot {
       // Connect MCP client if enabled
       if (appConfig.mcp.brave.enabled) {
         try {
-          await this.mcpClient.connectHTTP();
+          await this.mcpClient.connect();
         } catch (error) {
           logger.warn('Failed to connect MCP client, continuing without it:', error);
         }

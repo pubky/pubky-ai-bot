@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigSchema, type Config } from '@/types/config';
-import logger from '@/utils/logger';
 
 /**
  * Custom error class for configuration errors
@@ -28,7 +27,7 @@ function resolveEnvVars(obj: any): any {
         'DATABASE_URL': 'postgres://user:pass@localhost:5432/pubkybot',
         'REDIS_URL': 'redis://localhost:6379/0',
         'PUBKY_NETWORK': 'testnet',
-        'PUBKY_HOMESERVER_URL': 'https://example.com',
+        'PUBKY_HOMESERVER_URL': 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy', // Testnet homeserver pubkey
         'PUBKY_BOT_MNEMONIC': '', // No fallback - mnemonic is REQUIRED
         'PUBKY_NEXUS_API_URL': 'https://testnet.pubky.org',
         'PUBKY_AUTH_USERNAME': '',
@@ -91,6 +90,10 @@ function processSpecialValues(obj: any): any {
       // For AI fallback providers, return undefined if not set
       if (obj === '${AI_FALLBACK_PROVIDERS}') {
         return undefined;
+      }
+      // For LOG_LEVEL, return a default based on NODE_ENV if not set
+      if (obj === '${LOG_LEVEL}') {
+        return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
       }
       // For required configuration that must be set, throw error with helpful message
       const requiredVars = [
@@ -189,7 +192,22 @@ function validateConfig(): Config {
     const processedConfig = processSpecialValues(resolvedConfig);
     const validated = ConfigSchema.parse(processedConfig);
 
-    logger.info('Configuration loaded and validated successfully');
+    // Normalize MCP Brave base URL to include '/mcp' path if missing
+    try {
+      const u = new URL(validated.mcp.brave.baseUrl);
+      if (!u.pathname || u.pathname === '/' || u.pathname.trim() === '') {
+        u.pathname = '/mcp';
+        (validated as any).mcp.brave.baseUrl = u.toString();
+        console.warn(`Normalized BRAVE_MCP_BASE_URL to ${u.toString()} (appended /mcp)`);
+      }
+    } catch {
+      // ignore URL parse issues here; they will be caught elsewhere if invalid
+    }
+
+    // Don't use logger here to avoid circular dependency
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Configuration loaded and validated successfully');
+    }
     return validated;
   } catch (error) {
     // Handle configuration errors specially - they're not code bugs
@@ -200,7 +218,7 @@ function validateConfig(): Config {
     }
 
     // For other errors (Zod validation, etc), log with full context
-    logger.error('Configuration validation failed:', error);
+    console.error('Configuration validation failed:', error);
 
     // Provide helpful message for Zod validation errors
     if (error && typeof error === 'object' && 'issues' in error) {

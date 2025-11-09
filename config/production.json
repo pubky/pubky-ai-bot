@@ -1,4 +1,7 @@
 {
+  "logging": {
+    "level": "info"
+  },
   "server": {
     "port": 3000
   },
@@ -17,6 +20,7 @@
   },
   "mcp": {
     "brave": {
+      "transport": "http",
       "baseUrl": "${BRAVE_MCP_BASE_URL}",
       "headers": {
         "Authorization": "${BRAVE_MCP_TOKEN}"

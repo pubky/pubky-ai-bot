@@ -58,19 +58,23 @@ export class ReplyService {
     let reply = content.verdict || '';
 
     if (content.sources && content.sources.length > 0) {
-      const sourceList = content.sources
-        .slice(0, 3) // Maximum 3 sources
-        .map(source => `• ${source.title} — ${source.url}`)
-        .join('\n');
+      reply += '\n\nSources:';
 
-      reply += `\n\nSources:\n${sourceList}`;
+      content.sources.slice(0, 3).forEach(source => {
+        // Include credibility explanation if available (Grok-style)
+        if (source.description) {
+          reply += `\n\n• ${source.title}\n  ${source.url}\n  ${source.description}`;
+        } else {
+          reply += `\n• ${source.title} — ${source.url}`;
+        }
+      });
     }
 
     if (content.confidence === 'low') {
-      reply += '\n\nWARNING: Low confidence; limited sources available.';
+      reply += '\n\nNote: Confidence is limited due to source availability or quality.';
     }
 
-    return truncateText(reply, 800);
+    return truncateText(reply, 1200); // Increased from 800 to accommodate richer content
   }
 
   async publish(
@@ -95,7 +99,7 @@ export class ReplyService {
       // Check for duplicate replies
       const existingReply = await this.checkForDuplicate(mentionId, parentUri);
       if (existingReply) {
-        logger.info('Duplicate reply detected, returning existing', {
+        logger.debug('Duplicate reply detected, returning existing', {
           mentionId,
           existingReplyId: existingReply.id
         });

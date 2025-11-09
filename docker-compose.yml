@@ -30,7 +30,7 @@ services:
       - AI_MAX_TOKENS_CLASSIFIER=${AI_MAX_TOKENS_CLASSIFIER:-200}
       - AI_CLASSIFIER_TEMPERATURE=${AI_CLASSIFIER_TEMPERATURE:-0}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
-      - BRAVE_MCP_BASE_URL=${BRAVE_MCP_BASE_URL:-http://host.docker.internal:8921}
+      - BRAVE_MCP_BASE_URL=${BRAVE_MCP_BASE_URL:-http://host.docker.internal:8921/mcp}
     depends_on:
       - postgres
       - redis

@@ -109,10 +109,12 @@ export class PubkyService {
     if (url.startsWith('pubky://')) {
       return url.replace('pubky://', '').split('/')[0];
     } else if (url.startsWith('https://') || url.startsWith('http://')) {
-      // For HTTPS URLs, we might need to fetch the pubkey from the server
-      // For now, use a default testnet homeserver
-      logger.warn('Using default testnet homeserver pubkey for HTTPS URL');
-      return 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
+      // Do not silently fallback: a homeserver pubkey is required
+      // Force explicit configuration to avoid connecting to the wrong network
+      throw new Error(
+        'Invalid PUBKY_HOMESERVER_URL: expected a pubky public key (pk:...) or pubky://<pubkey>. ' +
+        'Do not use https:// hostnames here. Set PUBKY_HOMESERVER_URL to the homeserver public key.'
+      );
     }
     // Assume it's already a pubkey
     return url;
@@ -287,7 +289,7 @@ export class PubkyService {
         notificationsUrl.searchParams.set('offset', offset.toString());
       }
 
-      logger.info('Fetching mentions from Nexus API', {
+      logger.debug('Fetching mentions from Nexus API', {
         url: notificationsUrl.toString(),
         botPubkey: this.extractPubkey(botPublicKey).substring(0, 8) + '...'
       });
@@ -317,7 +319,7 @@ export class PubkyService {
 
       // Track raw notification count before deduplication
       const notificationCount = Array.isArray(data) ? data.length : 0;
-      logger.info(`Received ${notificationCount} notification(s) from Nexus`);
+      logger.debug(`Received ${notificationCount} notification(s) from Nexus`);
 
       // Transform Nexus notifications to Mention format
       const mentions: Mention[] = [];
@@ -371,73 +373,18 @@ export class PubkyService {
               continue;
             }
 
-            // Extract stable ID from Nexus notification (CRITICAL for retry safety)
-            // Strategy: Combine multiple stable fields to ensure uniqueness
-            // Priority: notification.id > body.id > post_id_from_uri + timestamp > post_id_from_uri
-            // NEVER use Date.now() - it changes on retry and breaks idempotency
+            // Stable ID: composite of postId + author short key for readability and uniqueness
             const notif = notification as Record<string, unknown>;
-            let stableId: string;
-            let idSource: string;
-
-            // Extract post ID from URI (most reliable identifier)
             const postId = postUri.split('/').pop() || '';
-
-            // Check for notification-level ID
-            if (typeof notif.id === 'string' && notif.id) {
-              // Best: Use Nexus notification ID (most stable)
-              stableId = notif.id;
-              idSource = 'notification.id';
-            }
-            // Check for body-level ID
-            else if (body && typeof (body as any).id === 'string' && (body as any).id) {
-              stableId = (body as any).id;
-              idSource = 'body.id';
-            }
-            // Check for indexed_at timestamp
-            else if (typeof notif.indexed_at === 'number') {
-              // Use indexed_at timestamp (stable)
-              stableId = `indexed_${notif.indexed_at}`;
-              idSource = 'notification.indexed_at';
-            }
-            // Check for timestamp field
-            else if (typeof notif.timestamp === 'number') {
-              // Use timestamp field (stable)
-              stableId = `ts_${notif.timestamp}`;
-              idSource = 'notification.timestamp';
-            }
-            // Check for post.id in nested structure
-            else if (typeof (notif.post as Record<string, unknown>)?.id === 'string') {
-              stableId = `post_${(notif.post as Record<string, unknown>).id}`;
-              idSource = 'post.id';
-            }
-            // Fallback: Use post ID from URI (always available and stable)
-            else if (postId) {
-              // Combine post ID with author pubkey for uniqueness
-              const authorShort = (authorPubkey || this.extractPubkey(postUri)).substring(0, 8);
-              stableId = `${postId}_${authorShort}`;
-              idSource = 'post_uri.composite';
-              logger.debug('Using composite mention ID from post URI', {
-                postUri,
-                postId,
-                authorShort,
-                availableFields: Object.keys(notif)
-              });
-            }
-            // Last resort: Use full post URI component
-            else {
-              stableId = `uri_${postUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
-              idSource = 'post.uri.fallback';
-              logger.warn('Using sanitized post URI as mention ID - no stable fields available', {
-                postUri,
-                availableFields: Object.keys(notif)
-              });
-            }
+            const authorShort = (authorPubkey || this.extractPubkey(postUri)).substring(0, 8);
+            const stableId = `${postId}_${authorShort}`;
+            const idSource = 'post_uri.composite';
 
             logger.debug('Generated stable mention ID', {
               mentionId: stableId,
               source: idSource,
               postUri,
-              postId
+              postId: postUri.split('/').pop() || ''
             });
 
             // Extract timestamp for receivedAt field
@@ -472,7 +419,7 @@ export class PubkyService {
         }
       }
 
-      logger.info(`Processed ${mentions.length} unique mention(s) from ${notificationCount} notification(s)`);
+      logger.debug(`Processed ${mentions.length} unique mention(s) from ${notificationCount} notification(s)`);
       return { mentions, notificationCount };
 
     } catch (error) {
@@ -547,7 +494,7 @@ export class PubkyService {
 
   async publishReply(options: PublishReplyOptions): Promise<PublishReplyResult> {
     try {
-      logger.info('Publishing reply', {
+      logger.debug('Publishing reply', {
         parentUri: options.parentUri,
         contentLength: options.content.length
       });
@@ -582,7 +529,7 @@ export class PubkyService {
       const replyId = meta.id;
       const replyUri = meta.url;
 
-      logger.info('Creating reply with PubkySpecsBuilder', {
+      logger.debug('Creating reply with PubkySpecsBuilder', {
         replyId,
         replyPath,
         replyUri,
@@ -599,13 +546,13 @@ export class PubkyService {
         uri: replyUri
       };
 
-      logger.info('Reply published successfully', result);
+      logger.debug('Reply published successfully', result);
 
       // Verify the reply was written by attempting to read it back
       try {
         const verification = await this.pubky.publicStorage.getJson(result.uri as any);
         if (verification) {
-          logger.info('Reply verified on homeserver', {
+          logger.debug('Reply verified on homeserver', {
             replyId,
             uri: result.uri,
             contentLength: (verification as any)?.content?.length || 0

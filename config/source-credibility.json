@@ -1,0 +1,239 @@
+{
+  "sources": {
+    "reuters.com": {
+      "score": 0.95,
+      "category": "news",
+      "tier": "premium",
+      "perspective": "International news agency",
+      "notes": "One of the world's largest news agencies, known for accuracy"
+    },
+    "apnews.com": {
+      "score": 0.95,
+      "category": "news",
+      "tier": "premium",
+      "perspective": "Associated Press news",
+      "notes": "Non-profit news agency with strong editorial standards"
+    },
+    "ap.org": {
+      "score": 0.95,
+      "category": "news",
+      "tier": "premium",
+      "perspective": "Associated Press news",
+      "notes": "Non-profit news agency with strong editorial standards"
+    },
+    "bbc.com": {
+      "score": 0.9,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "British public broadcaster",
+      "notes": "Public service broadcaster with editorial guidelines"
+    },
+    "bbc.co.uk": {
+      "score": 0.9,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "British public broadcaster",
+      "notes": "Public service broadcaster with editorial guidelines"
+    },
+    "cnn.com": {
+      "score": 0.8,
+      "category": "news",
+      "tier": "mainstream",
+      "perspective": "US cable news",
+      "notes": "Major US news network, center-left perspective"
+    },
+    "nytimes.com": {
+      "score": 0.85,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "US newspaper of record",
+      "notes": "Pulitzer Prize-winning journalism, center-left editorial"
+    },
+    "washingtonpost.com": {
+      "score": 0.85,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "US national newspaper",
+      "notes": "Major US newspaper with investigative focus"
+    },
+    "npr.org": {
+      "score": 0.85,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "US public radio",
+      "notes": "Public radio with editorial independence"
+    },
+    "nature.com": {
+      "score": 0.95,
+      "category": "scientific",
+      "tier": "premium",
+      "perspective": "Scientific journal",
+      "notes": "Leading peer-reviewed scientific journal"
+    },
+    "science.org": {
+      "score": 0.95,
+      "category": "scientific",
+      "tier": "premium",
+      "perspective": "Scientific journal",
+      "notes": "AAAS peer-reviewed scientific journal"
+    },
+    "sciencemag.org": {
+      "score": 0.95,
+      "category": "scientific",
+      "tier": "premium",
+      "perspective": "Scientific journal",
+      "notes": "AAAS peer-reviewed scientific journal"
+    },
+    "pubmed.ncbi.nlm.nih.gov": {
+      "score": 0.95,
+      "category": "scientific",
+      "tier": "premium",
+      "perspective": "Medical research database",
+      "notes": "NIH database of peer-reviewed medical literature"
+    },
+    "ncbi.nlm.nih.gov": {
+      "score": 0.95,
+      "category": "scientific",
+      "tier": "premium",
+      "perspective": "Medical research database",
+      "notes": "NIH biomedical and genomic information"
+    },
+    "who.int": {
+      "score": 0.9,
+      "category": "health",
+      "tier": "trusted",
+      "perspective": "World Health Organization",
+      "notes": "UN specialized agency for international health"
+    },
+    "cdc.gov": {
+      "score": 0.9,
+      "category": "health",
+      "tier": "trusted",
+      "perspective": "US health protection",
+      "notes": "US Centers for Disease Control and Prevention"
+    },
+    "nih.gov": {
+      "score": 0.9,
+      "category": "health",
+      "tier": "trusted",
+      "perspective": "US medical research",
+      "notes": "US National Institutes of Health"
+    },
+    "theguardian.com": {
+      "score": 0.8,
+      "category": "news",
+      "tier": "mainstream",
+      "perspective": "British newspaper",
+      "notes": "British daily with center-left perspective"
+    },
+    "wsj.com": {
+      "score": 0.85,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "Business and finance",
+      "notes": "Leading business newspaper, center-right editorial"
+    },
+    "economist.com": {
+      "score": 0.85,
+      "category": "news",
+      "tier": "trusted",
+      "perspective": "International analysis",
+      "notes": "Weekly newspaper focusing on analysis and opinion"
+    },
+    "forbes.com": {
+      "score": 0.75,
+      "category": "business",
+      "tier": "mainstream",
+      "perspective": "Business magazine",
+      "notes": "Business magazine with contributor content"
+    },
+    "bloomberg.com": {
+      "score": 0.85,
+      "category": "business",
+      "tier": "trusted",
+      "perspective": "Financial news",
+      "notes": "Financial data and news service"
+    },
+    "ft.com": {
+      "score": 0.85,
+      "category": "business",
+      "tier": "trusted",
+      "perspective": "Financial Times",
+      "notes": "International business newspaper"
+    },
+    "snopes.com": {
+      "score": 0.85,
+      "category": "factcheck",
+      "tier": "trusted",
+      "perspective": "Fact-checking",
+      "notes": "Fact-checking and debunking website"
+    },
+    "factcheck.org": {
+      "score": 0.85,
+      "category": "factcheck",
+      "tier": "trusted",
+      "perspective": "Political fact-checking",
+      "notes": "Nonpartisan political fact-checking"
+    },
+    "politifact.com": {
+      "score": 0.85,
+      "category": "factcheck",
+      "tier": "trusted",
+      "perspective": "Political fact-checking",
+      "notes": "Pulitzer Prize-winning fact-checking"
+    }
+  },
+  "domainRules": {
+    ".gov": {
+      "score": 0.8,
+      "reason": "Government source",
+      "notes": "Official government websites"
+    },
+    ".edu": {
+      "score": 0.85,
+      "reason": "Educational institution",
+      "notes": "Universities and educational institutions"
+    },
+    ".org": {
+      "score": 0.7,
+      "reason": "Organization",
+      "notes": "Non-profit and organizational websites"
+    },
+    ".mil": {
+      "score": 0.8,
+      "reason": "Military source",
+      "notes": "US military websites"
+    },
+    ".ac.uk": {
+      "score": 0.85,
+      "reason": "UK academic institution",
+      "notes": "UK universities and research institutions"
+    }
+  },
+  "categoryDefaults": {
+    "news": 0.7,
+    "scientific": 0.85,
+    "health": 0.8,
+    "business": 0.7,
+    "factcheck": 0.85,
+    "opinion": 0.5,
+    "blog": 0.4,
+    "social": 0.3,
+    "unknown": 0.5
+  },
+  "tierMultipliers": {
+    "premium": 1.0,
+    "trusted": 0.95,
+    "mainstream": 0.9,
+    "alternative": 0.7,
+    "unknown": 0.8
+  },
+  "config": {
+    "defaultScore": 0.5,
+    "minimumScore": 0.1,
+    "maximumScore": 1.0,
+    "unknownSourcePenalty": 0.2,
+    "cacheEnabled": true,
+    "cacheTTL": 86400
+  }
+}

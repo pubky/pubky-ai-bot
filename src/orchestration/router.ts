@@ -31,7 +31,7 @@ export class Router {
     const data = event.data as MentionReceivedV1;
     const runId = `route_${event.id}`;
 
-    logger.info('Processing mention for routing', {
+    logger.debug('Processing mention for routing', {
       mentionId: data.mentionId,
       runId,
       eventId: event.id
@@ -55,7 +55,7 @@ export class Router {
         return;
       }
 
-      logger.info('Mention routing completed', {
+      logger.debug('Mention routing completed', {
         mentionId: data.mentionId,
         runId,
         decision: result.result
@@ -100,14 +100,14 @@ export class Router {
       await this.emitActionEvent(data, decision.intent, runId);
       this.metrics.incrementActions('routing', 'completed');
     } else {
-      logger.info('Unknown intent, no action taken', {
+      logger.debug('Unknown intent, no action taken', {
         mentionId: data.mentionId,
         decision
       });
 
       // Check if we should default to summary for unknown intents
       if (appConfig.features.summary && this.shouldDefaultToSummary(decision)) {
-        logger.info('Defaulting unknown intent to summary', {
+        logger.debug('Defaulting unknown intent to summary', {
           mentionId: data.mentionId
         });
 

@@ -9,6 +9,9 @@ export const ConfigSchema = z.object({
       credentials: z.boolean()
     })
   }),
+  logging: z.object({
+    level: z.enum(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']).default('info')
+  }),
   redis: z.object({
     url: z.string().min(1) // Redis URL with redis:// protocol
   }),
@@ -77,6 +80,7 @@ export const ConfigSchema = z.object({
   mcp: z.object({
     brave: z.object({
       enabled: z.boolean(),
+      transport: z.enum(['http', 'sse']).default('sse'),
       baseUrl: z.string().min(1), // MCP server base URL
       connectTimeoutMs: z.number().min(1000).max(30000),
       maxResults: z.number().min(1).max(20),

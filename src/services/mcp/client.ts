@@ -7,26 +7,50 @@ export class McpClientService {
   private client: Awaited<ReturnType<typeof experimental_createMCPClient>> | null = null;
   private isConnected = false;
 
-  async connectHTTP(): Promise<void> {
+  async connect(): Promise<void> {
     if (!appConfig.mcp.brave.enabled) {
       logger.info('MCP Brave client disabled in configuration');
       return;
     }
 
-    try {
+    const tryConnect = async (transportType: 'http' | 'sse') => {
       const connectPromise = experimental_createMCPClient({
         transport: {
-          type: 'http',
+          type: transportType,
           url: appConfig.mcp.brave.baseUrl,
           headers: appConfig.mcp.brave.headers
         }
       });
-
-      this.client = await withTimeout(connectPromise, appConfig.mcp.brave.connectTimeoutMs);
+      const client = await withTimeout(connectPromise, appConfig.mcp.brave.connectTimeoutMs);
+      this.client = client;
       this.isConnected = true;
+      logger.info(`MCP client connected (${transportType}) to ${appConfig.mcp.brave.baseUrl}`);
+    };
 
-      logger.info(`MCP client connected to ${appConfig.mcp.brave.baseUrl}`);
-    } catch (error) {
+    // Primary transport from config, fallback to the other on known HTTP incompatibilities
+    const primary = appConfig.mcp.brave.transport;
+    const secondary: 'http' | 'sse' = primary === 'http' ? 'sse' : 'http';
+
+    try {
+      await tryConnect(primary);
+      return;
+    } catch (error: any) {
+      const msg = String(error?.message || error);
+      const looksLikeWrongHttpEndpoint = /Cannot POST \/|HTTP 404/i.test(msg);
+      const suggestFallback = looksLikeWrongHttpEndpoint || /does not support HTTP transport|server does not support HTTP/i.test(msg);
+
+      if (primary === 'http' && suggestFallback) {
+        logger.warn('HTTP MCP transport failed, retrying with SSE...', { reason: msg });
+        await tryConnect('sse');
+        return;
+      }
+
+      if (primary === 'sse' && /EventSource|SSE|stream/i.test(msg)) {
+        logger.warn('SSE MCP transport failed, retrying with HTTP...', { reason: msg });
+        await tryConnect('http');
+        return;
+      }
+
       logger.error('Failed to connect MCP client:', error);
       throw error;
     }
@@ -34,7 +58,7 @@ export class McpClientService {
 
   async tools(): Promise<Record<string, any>> {
     if (!this.client || !this.isConnected) {
-      throw new Error('MCP client not connected. Call connectHTTP() first.');
+      throw new Error('MCP client not connected. Call connect() first.');
     }
 
     try {

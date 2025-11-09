@@ -36,7 +36,7 @@ export class FactcheckWorker {
     const data = event.data as ActionRequestedV1;
     const runId = generateRunId();
 
-    logger.info('Processing factcheck request', {
+    logger.debug('Processing factcheck request', {
       mentionId: data.mentionId,
       postId: data.postId,
       runId,
@@ -61,7 +61,7 @@ export class FactcheckWorker {
         return;
       }
 
-      logger.info('Factcheck action completed', {
+      logger.debug('Factcheck action completed', {
         mentionId: data.mentionId,
         runId,
         success: result.result?.success
@@ -106,7 +106,7 @@ export class FactcheckWorker {
       const claims = await this.factcheckService.extractClaims(threadContext);
 
       if (claims.length === 0) {
-        logger.info('No verifiable claims found', {
+        logger.debug('No verifiable claims found', {
           mentionId: data.mentionId
         });
 
@@ -144,7 +144,10 @@ export class FactcheckWorker {
         claimCount: claims.length
       });
 
-      const factcheckResult = await this.factcheckService.verify(claims);
+      let factcheckResult = await this.factcheckService.verify(claims);
+
+      // Clean MCP protocol data from the result before using it
+      factcheckResult = this.cleanMcpData(factcheckResult);
 
       // Format reply
       const replyContent = this.formatFactcheckReply(factcheckResult);
@@ -205,35 +208,146 @@ export class FactcheckWorker {
     }
   }
 
-  private formatFactcheckReply(result: any): ReplyContent {
-    const { overallAssessment, verifiedClaims, sources } = result;
+  private cleanMcpData(data: any): any {
+    // MCP protocol fields that should be removed
+    const mcpFields = [
+      'toolName',
+      'toolInput',
+      'bravewebsearch',
+      'resultsfilter',
+      'safesearch',
+      'spellcheck',
+      'textdecorations',
+      'tool_calls',
+      'tool_use',
+      'function_calls'
+    ];
 
-    // Format verdict with brief explanation
-    const verdictMap = {
-      'accurate': 'Accurate',
-      'mostly accurate': 'Mostly Accurate',
-      'mixed': 'Mixed Evidence',
-      'mostly inaccurate': 'Mostly Inaccurate',
-      'inaccurate': 'Inaccurate',
-      'unverifiable': 'Unverifiable'
+    const cleanMcpResponse = (response: any): any => {
+      if (!response) return response;
+
+      if (typeof response === 'string') {
+        // Clean string responses
+        let cleaned = response;
+        mcpFields.forEach(field => {
+          // Remove JSON patterns like {"toolName": ...}
+          const patterns = [
+            new RegExp(`"${field}":\\s*[^,}]+[,}]`, 'gi'),
+            new RegExp(`{[^}]*"${field}"[^}]*}`, 'gi')
+          ];
+          patterns.forEach(pattern => {
+            cleaned = cleaned.replace(pattern, (match) => {
+              // Keep structure but remove content
+              return match.includes('}') ? '{}' : '';
+            });
+          });
+        });
+        return cleaned;
+      }
+
+      if (typeof response === 'object') {
+        // Clone to avoid mutation
+        const cleaned = Array.isArray(response) ? [...response] : { ...response };
+
+        // Remove MCP fields
+        if (!Array.isArray(cleaned)) {
+          mcpFields.forEach(field => {
+            delete cleaned[field];
+            // Also check camelCase and snake_case variations
+            delete cleaned[field.toLowerCase()];
+            delete cleaned[field.replace(/([A-Z])/g, '_$1').toLowerCase()];
+          });
+        }
+
+        // Recursively clean nested objects
+        Object.keys(cleaned).forEach(key => {
+          if (cleaned[key] && typeof cleaned[key] === 'object') {
+            cleaned[key] = cleanMcpResponse(cleaned[key]);
+          }
+        });
+
+        return cleaned;
+      }
+
+      return response;
     };
 
-    let verdict = `${verdictMap[overallAssessment.verdict] || 'Unverifiable'}`;
+    // Clean the entire data object
+    const cleanedData = cleanMcpResponse(data);
 
-    if (verifiedClaims.length === 1) {
-      verdict += ` — ${verifiedClaims[0].reasoning.split('.')[0]}.`;
-    } else if (verifiedClaims.length > 1) {
-      verdict += ` — Based on verification of ${verifiedClaims.length} claims.`;
+    // Log if cleaning was needed
+    const originalStr = JSON.stringify(data);
+    const cleanedStr = JSON.stringify(cleanedData);
+    if (originalStr !== cleanedStr) {
+      logger.info('MCP protocol data was cleaned', {
+        originalLength: originalStr.length,
+        cleanedLength: cleanedStr.length
+      });
     }
 
-    // Include top sources
+    return cleanedData;
+  }
+
+  private formatFactcheckReply(result: any): ReplyContent {
+    // Validate result structure
+    if (!result || typeof result !== 'object') {
+      logger.error('Invalid factcheck result - not an object', {
+        resultType: typeof result,
+        result: JSON.stringify(result).substring(0, 500)
+      });
+      throw new Error('Invalid factcheck result structure');
+    }
+
+    const { overallAssessment, verifiedClaims, sources } = result;
+
+    // Validate required fields
+    if (!overallAssessment || !verifiedClaims) {
+      logger.error('Invalid factcheck result structure - missing required fields', {
+        hasOverall: !!overallAssessment,
+        hasClaims: !!verifiedClaims,
+        hasSources: !!sources,
+        result: JSON.stringify(result).substring(0, 500)
+      });
+      throw new Error('Invalid factcheck result structure - cannot format reply');
+    }
+
+    // Build Grok-style narrative response
+    let narrativeText = '';
+
+    // Use the narrative summary from overallAssessment
+    if (overallAssessment.narrative) {
+      narrativeText = overallAssessment.narrative;
+    } else if (overallAssessment.reasoning) {
+      // Fallback to reasoning if narrative not available
+      narrativeText = overallAssessment.reasoning;
+    } else if (verifiedClaims.length > 0) {
+      // Fallback to first claim's reasoning
+      narrativeText = verifiedClaims[0].reasoning;
+    } else {
+      narrativeText = "I looked into this claim but couldn't find enough reliable information to verify it.";
+    }
+
+    // Add alternative perspectives if present
+    const allPerspectives = verifiedClaims
+      .filter(vc => vc.alternativePerspectives && vc.alternativePerspectives.length > 0)
+      .flatMap(vc => vc.alternativePerspectives || []);
+
+    if (allPerspectives.length > 0) {
+      narrativeText += `\n\nAlternative perspective: ${allPerspectives[0]}`;
+    }
+
+    // Include top sources with credibility explanations
     const topSources = sources.slice(0, 3).map(source => ({
       title: source.title,
-      url: source.url
+      url: source.url,
+      // Include credibility explanation if available
+      description: source.credibilityExplanation
+        ? `${source.credibilityExplanation} (${source.credibilityRating || 'unknown reliability'}${source.perspective ? ', ' + source.perspective : ''})`
+        : undefined
     }));
 
     const replyContent: ReplyContent = {
-      verdict,
+      verdict: narrativeText,
       sources: topSources,
       confidence: overallAssessment.confidence > 0.7 ? 'high' :
                   overallAssessment.confidence > 0.4 ? 'medium' : 'low'

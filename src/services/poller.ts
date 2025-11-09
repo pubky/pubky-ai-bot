@@ -130,43 +130,82 @@ export class MentionPoller {
     logger.debug('Polling for new mentions');
 
     try {
-      // Fetch mentions from Nexus API using offset-based pagination
-      const result = await this.pubkyService.fetchMentionsFromNexus({
-        limit: appConfig.pubky.mentionPolling.batchSize,
-        offset: this.lastProcessedOffset
-      });
+      // We may need to scan through multiple pages within a single poll to
+      // quickly skip past duplicate-only pages returned by Nexus.
+      // This avoids re-reading the same notifications every poll.
+      const limit = appConfig.pubky.mentionPolling.batchSize;
+      let pageOffset = this.lastProcessedOffset;
+      let pagesScanned = 0;
+      let totalAdvanced = 0;
+      let processedAny = false;
 
-      const { mentions, notificationCount } = result;
+      // Soft cap to prevent unbounded work in a single poll cycle
+      const MAX_PAGES_PER_POLL = 10;
 
-      if (mentions.length === 0) {
-        logger.debug('No new mentions found');
-        // Still need to advance offset if we received notifications but all were duplicates
-        if (notificationCount > 0) {
-          const newOffset = this.lastProcessedOffset + notificationCount;
-          await this.persistOffset(newOffset);
-          this.lastProcessedOffset = newOffset;
-          logger.debug(`Advanced offset by ${notificationCount} notification(s) (all duplicates)`);
+      while (pagesScanned < MAX_PAGES_PER_POLL) {
+        // Fetch a page using current offset
+        const result = await this.pubkyService.fetchMentionsFromNexus({
+          limit,
+          offset: pageOffset
+        });
+
+        const { mentions, notificationCount } = result;
+
+        // Nothing more to read
+        if (notificationCount === 0) {
+          break;
         }
-        return;
+
+        // Pre-filter against mentions already in our DB
+        const { newMentions, duplicates } = await this.filterAlreadyProcessedMentions(mentions);
+
+        if (newMentions.length === 0) {
+          // Page contained only duplicates; advance locally and keep scanning
+          logger.debug('Page contained only duplicates; skipping', {
+            offset: pageOffset,
+            notificationCount,
+            duplicates
+          });
+          pageOffset += notificationCount;
+          totalAdvanced += notificationCount;
+          pagesScanned++;
+          continue;
+        }
+
+        // Process new mentions from this page
+        if (duplicates > 0) {
+          logger.info(`Found ${newMentions.length} mention(s) to process from ${notificationCount} notifications (skipped ${duplicates} duplicate(s))`);
+        } else {
+          logger.info(`Found ${newMentions.length} new mention(s) from ${notificationCount} notifications`);
+        }
+
+        // CRITICAL: If ANY mention fails, this throws and we will not persist offset
+        await this.processInParallel(newMentions, this.MAX_CONCURRENT_MENTIONS);
+        processedAny = true;
+
+        // Advance to next page and continue scanning within this poll
+        pageOffset += notificationCount;
+        totalAdvanced += notificationCount;
+        pagesScanned++;
+
+        // Heuristic: if a page had zero duplicates (all new), it's likely the next page
+        // will be older; still continue until we either hit a duplicate-only page or max pages.
       }
 
-      logger.info(`Found ${mentions.length} new mentions from ${notificationCount} notifications`);
-
-      // Process mentions in parallel with concurrency limit
-      // CRITICAL: This will throw if ANY mention fails, preventing offset advancement below
-      await this.processInParallel(mentions, this.MAX_CONCURRENT_MENTIONS);
-
-      // Update offset transactionally (only reached if ALL mentions processed successfully)
-      // If processInParallel() threw, we never reach here, so offset stays at last known good value
-      // CRITICAL: Advance by notificationCount (raw count), not mentions.length (deduplicated count)
-      if (notificationCount > 0) {
-        const newOffset = this.lastProcessedOffset + notificationCount;
-        await this.persistOffset(newOffset);
-        this.lastProcessedOffset = newOffset;
-        logger.debug(`Updated offset to ${this.lastProcessedOffset} (advanced by ${notificationCount} notifications)`);
+      // Persist the furthest offset we safely advanced to in this poll
+      if (totalAdvanced > 0) {
+        await this.persistOffset(pageOffset);
+        this.lastProcessedOffset = pageOffset;
+        logger.debug(`Updated offset to ${this.lastProcessedOffset} (advanced by ${totalAdvanced} notifications across ${pagesScanned} page(s))`);
+      } else {
+        logger.debug('No notifications to advance; offset unchanged');
       }
 
-      logger.debug(`Processed ${mentions.length} mentions successfully`);
+      if (processedAny) {
+        logger.debug('Processed at least one new mention this cycle');
+      } else {
+        logger.debug('No new mentions found this cycle');
+      }
 
     } catch (error) {
       logger.error('Failed to poll mentions:', error);
@@ -458,6 +497,47 @@ export class MentionPoller {
        WHERE mention_id = $1`,
       [mentionId, status, error]
     );
+  }
+
+  /**
+   * Filter out mentions that are already persisted in the database.
+   * This prevents reprocessing the same mentions across polling cycles
+   * when the upstream API returns overlapping pages or ignores offset.
+   */
+  private async filterAlreadyProcessedMentions(mentions: Mention[]): Promise<{ newMentions: Mention[]; duplicates: number }> {
+    if (mentions.length === 0) {
+      return { newMentions: [], duplicates: 0 };
+    }
+
+    try {
+      const ids = mentions.map(m => m.mentionId);
+      const postIds = mentions.map(m => m.postId);
+      const rows = await db.query<{ mention_id: string; post_id: string }>(
+        `SELECT mention_id, post_id
+         FROM mentions
+         WHERE mention_id = ANY($1::text[])
+            OR post_id = ANY($2::text[])`,
+        [ids, postIds]
+      );
+
+      const existingByMentionId = new Set(rows.map(r => r.mention_id));
+      const existingByPostId = new Set(rows.map(r => r.post_id));
+      const newMentions = mentions.filter(m => !existingByMentionId.has(m.mentionId) && !existingByPostId.has(m.postId));
+      const duplicates = mentions.length - newMentions.length;
+
+      if (duplicates > 0) {
+        logger.debug('Filtered already-processed mentions', {
+          total: mentions.length,
+          duplicates,
+          toProcess: newMentions.length
+        });
+      }
+
+      return { newMentions, duplicates };
+    } catch (error) {
+      logger.warn('Failed to check existing mentions; proceeding without pre-filter', error);
+      return { newMentions: mentions, duplicates: 0 };
+    }
   }
 
   async healthCheck(): Promise<boolean> {
