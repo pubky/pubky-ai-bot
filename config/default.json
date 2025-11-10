@@ -68,7 +68,13 @@
   },
   "limits": {
     "maxConcurrentActions": 4,
-    "defaultTimeoutMs": 30000
+    "defaultTimeoutMs": 30000,
+    "thread": {
+      "maxDepth": "${THREAD_MAX_DEPTH}",
+      "maxPosts": "${THREAD_MAX_POSTS}",
+      "maxTokensForAI": "${THREAD_MAX_TOKENS_FOR_AI}",
+      "tokenWarningThreshold": "${THREAD_TOKEN_WARNING_THRESHOLD}"
+    }
   },
   "safety": {
     "wordlist": [

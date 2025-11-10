@@ -17,8 +17,24 @@ export class ClassifierService {
   ];
 
   private readonly factcheckKeywords = [
-    'verify', 'fact check', 'factcheck', 'is this true', 'source', 'citation',
-    'cite', 'verify this', 'check this', 'true or false', 'accurate'
+    // Explicit fact-checking terms
+    'verify', 'fact check', 'factcheck', 'fact-check',
+
+    // Truth verification patterns
+    'is this true', 'is this tru', 'is this real', 'is this legit',
+    'true or false', 'real or fake', 'legit or fake',
+
+    // Source/citation requests
+    'source', 'citation', 'cite', 'cite this', 'sources',
+
+    // Verification actions
+    'verify this', 'check this', 'confirm this', 'validate this',
+
+    // Authenticity checks
+    'accurate', 'authentic', 'genuine', 'legitimate', 'legit',
+
+    // Debunking patterns
+    'debunk', 'hoax', 'fake news', 'misinformation', 'disinformation'
   ];
 
   constructor(private aiService: AIService) {}
@@ -41,7 +57,7 @@ export class ClassifierService {
     if (factcheckMatches.length > 0) {
       return {
         intent: 'factcheck',
-        confidence: Math.min(0.8, 0.5 + (factcheckMatches.length * 0.1)),
+        confidence: Math.min(0.85, 0.5 + (factcheckMatches.length * 0.1)),
         matchedKeywords: factcheckMatches,
         reason: `Matched factcheck keywords: ${factcheckMatches.join(', ')}`
       };
@@ -50,7 +66,7 @@ export class ClassifierService {
     if (summaryMatches.length > 0) {
       return {
         intent: 'summary',
-        confidence: Math.min(0.7, 0.4 + (summaryMatches.length * 0.1)),
+        confidence: Math.min(0.85, 0.4 + (summaryMatches.length * 0.1)),
         matchedKeywords: summaryMatches,
         reason: `Matched summary keywords: ${summaryMatches.join(', ')}`
       };
@@ -121,7 +137,12 @@ Context:
 Classification rules:
 - SUMMARY: User wants a summary, recap, overview, or tl;dr of content
 - FACTCHECK: User wants to verify claims, check facts, or find sources
+  Examples: "is this true", "is this tru", "is this real", "is this legit",
+  "verify this", "check this", "source", "real or fake", "true or false",
+  "debunk", "fact check", "misinformation", "authentic"
 - UNKNOWN: Intent is unclear or requests something else
+
+IMPORTANT: Questions about truthfulness, authenticity, or legitimacy should be FACTCHECK, not SUMMARY.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -137,8 +158,10 @@ Return ONLY valid JSON with this exact structure:
     // Try heuristics first (fast path)
     const heuristicMatch = this.heuristicIntent(mention);
 
-    if (heuristicMatch && heuristicMatch.confidence >= 0.6) {
-      logger.debug('Using heuristic classification', {
+    // Conservative approach: Only use heuristics if confidence is high (≥0.75)
+    // If uncertain, always defer to LLM for more accurate classification
+    if (heuristicMatch && heuristicMatch.confidence >= 0.75) {
+      logger.debug('Using heuristic classification (high confidence)', {
         mentionId: mention.mentionId,
         intent: heuristicMatch.intent,
         confidence: heuristicMatch.confidence,
@@ -153,10 +176,11 @@ Return ONLY valid JSON with this exact structure:
       };
     }
 
-    // Fall back to LLM classification
+    // Fall back to LLM classification for uncertain cases
     logger.debug('Falling back to LLM classification', {
       mentionId: mention.mentionId,
-      heuristicConfidence: heuristicMatch?.confidence || 0
+      heuristicConfidence: heuristicMatch?.confidence || 0,
+      reason: heuristicMatch ? 'confidence below threshold' : 'no keyword match'
     });
 
     const request: ClassificationRequest = {

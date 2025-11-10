@@ -197,6 +197,39 @@ export class AIService {
     }
   }
 
+  /**
+   * Extract JSON from text that might be wrapped in markdown code blocks
+   */
+  private extractJsonFromText(text: string): any {
+    // Try to find JSON in markdown code blocks first
+    const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      const jsonStr = codeBlockMatch[1].trim();
+      try {
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        // Continue to try other methods
+      }
+    }
+
+    // Try to find raw JSON object
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        // Continue to try direct parse
+      }
+    }
+
+    // Try direct parse as last resort
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(`Could not extract valid JSON from response: ${text.substring(0, 200)}...`);
+    }
+  }
+
   async generateObject<T>(
     prompt: string,
     schema: any,
@@ -214,22 +247,59 @@ export class AIService {
     try {
       const result = await this.executeWithFallback(
         async (model, providerName) => {
-          const response = await withTimeout(
-            generateObject({
-              model,
-              schema,
-              prompt,
-              temperature,
-              maxRetries: 1
-            }),
-            timeout
-          );
+          try {
+            // First try the standard generateObject approach
+            const response = await withTimeout(
+              generateObject({
+                model,
+                schema,
+                prompt,
+                temperature,
+                maxRetries: 1
+              }),
+              timeout
+            );
 
-          return {
-            object: response.object as T,
-            usage: response.usage,
-            provider: providerName
-          };
+            return {
+              object: response.object as T,
+              usage: response.usage,
+              provider: providerName
+            };
+          } catch (error: any) {
+            // If parsing failed, try generateText and extract JSON manually
+            if (error.message?.includes('parse') || error.message?.includes('No object generated')) {
+              logger.debug(`Object generation failed for ${providerName}, trying text extraction`);
+
+              // Use generateText instead
+              const textResponse = await withTimeout(
+                generateText({
+                  model,
+                  prompt: prompt + '\n\nPlease respond with valid JSON only.',
+                  temperature,
+                  maxRetries: 1
+                }),
+                timeout
+              );
+
+              // Extract JSON from the text response
+              const extractedObject = this.extractJsonFromText(textResponse.text);
+
+              // Validate against schema
+              const validationResult = schema.safeParse(extractedObject);
+              if (!validationResult.success) {
+                throw new Error(`Schema validation failed: ${validationResult.error.message}`);
+              }
+
+              return {
+                object: validationResult.data as T,
+                usage: textResponse.usage,
+                provider: providerName
+              };
+            }
+
+            // Re-throw other errors
+            throw error;
+          }
         },
         purpose
       );

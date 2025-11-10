@@ -469,6 +469,10 @@ export class FactcheckWorker {
         },
         posts: [],
         participants: ['system'],
+        participantProfiles: [{
+          publicKey: 'system',
+          displayName: 'System'
+        }],
         depth: 1,
         totalTokens: 20,
         isComplete: true

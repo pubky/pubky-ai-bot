@@ -3,16 +3,24 @@ import { ReplyContent } from '@/services/reply';
 
 export class SummaryTemplates {
   static formatReply(result: SummaryResult): ReplyContent {
-    const { summary, keyPoints, metrics } = result;
+    const { summary, keyPoints, metrics, participantNames } = result;
+
+    // Build the summary text with participant names if available
+    let formattedSummary = summary;
+
+    // Add participants section if we have multiple participants
+    if (participantNames && participantNames.length > 1) {
+      formattedSummary += ` Main participants: ${participantNames.join(', ')}`;
+    }
 
     // Determine if we should include key points based on space and quality
     const shouldIncludeKeyPoints =
       keyPoints.length > 0 &&
       metrics.confidence !== 'low' &&
-      summary.length < 300; // Leave room for key points
+      formattedSummary.length < 300; // Leave room for key points
 
     const replyContent: ReplyContent = {
-      summary
+      summary: formattedSummary
     };
 
     if (shouldIncludeKeyPoints) {
@@ -45,6 +53,7 @@ export class SummaryTemplates {
       summary: result.summary,
       keyPoints: result.keyPoints,
       participants: result.participants,
+      participantNames: result.participantNames, // Include resolved usernames
       topics: result.topics,
       metrics: result.metrics
     };
@@ -73,7 +82,10 @@ export class SummaryTemplates {
       });
     }
 
-    if (result.participants.length > 1) {
+    // Use participant names if available, otherwise fall back to participant IDs
+    if (result.participantNames && result.participantNames.length > 1) {
+      detailed += `\nParticipants: ${result.participantNames.join(', ')}`;
+    } else if (result.participants.length > 1) {
       detailed += `\nParticipants: ${result.participants.join(', ')}`;
     }
 

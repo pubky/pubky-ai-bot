@@ -105,15 +105,22 @@ export class Router {
         decision
       });
 
-      // Check if we should default to summary for unknown intents
+      // Conservative fallback: Only default to summary if extremely uncertain
       if (appConfig.features.summary && this.shouldDefaultToSummary(decision)) {
-        logger.debug('Defaulting unknown intent to summary', {
-          mentionId: data.mentionId
+        logger.warn('Defaulting unknown intent to summary (very low confidence)', {
+          mentionId: data.mentionId,
+          confidence: decision.confidence,
+          reason: decision.reason
         });
 
         await this.emitActionEvent(data, 'summary', runId);
         decision.intent = 'summary';
-        decision.reason = `${decision.reason} (defaulted to summary)`;
+        decision.reason = `${decision.reason} (defaulted to summary due to extreme uncertainty)`;
+      } else {
+        logger.info('Intent remains unknown - no action taken', {
+          mentionId: data.mentionId,
+          confidence: decision.confidence
+        });
       }
 
       this.metrics.incrementActions('routing', 'completed');
@@ -175,13 +182,17 @@ export class Router {
   }
 
   private shouldDefaultToSummary(decision: RoutingDecision): boolean {
-    // Default to summary if:
+    // Conservative approach: Only default to summary if extremely uncertain
+    // Requirements:
     // 1. Feature is enabled
-    // 2. Confidence is very low (< 0.3) indicating we really don't know
+    // 2. Confidence is EXTREMELY low (< 0.15) - LLM is very unsure
     // 3. Method was LLM (heuristics didn't match anything)
+    //
+    // Philosophy: When uncertain, prefer no action over wrong action
+    // Only default when LLM gives almost no confidence
 
     return appConfig.features.summary &&
-           decision.confidence < 0.3 &&
+           decision.confidence < 0.15 &&
            decision.method === 'llm';
   }
 

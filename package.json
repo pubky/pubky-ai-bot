@@ -14,7 +14,15 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "reprocess": "node scripts/reprocess.js",
+    "reprocess:recent": "node scripts/reprocess.js -- --recent",
+    "reprocess:limited": "node scripts/reprocess.js -- --limited",
+    "check:failed": "psql $DATABASE_URL -f scripts/check-failed.sql",
+    "docker:reprocess": "./scripts/docker-reprocess.sh",
+    "docker:reprocess:recent": "./scripts/docker-reprocess.sh --recent",
+    "docker:reprocess:limited": "./scripts/docker-reprocess.sh --limited",
+    "docker:check:failed": "docker compose exec -T postgres psql -U pubkybot -d pubkybot -f /dev/stdin < scripts/check-failed.sql"
   },
   "keywords": [
     "pubky",

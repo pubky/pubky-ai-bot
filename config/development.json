@@ -13,7 +13,7 @@
   },
   "pubky": {
     "homeserverUrl": "${PUBKY_HOMESERVER_URL}",
-    "botSecretKey": "${PUBKY_BOT_SECRET_KEY}"
+    "botMnemonic": "${PUBKY_BOT_MNEMONIC}"
   },
   "ai": {
     "primaryProvider": "${AI_PRIMARY_PROVIDER}"

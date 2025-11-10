@@ -33,7 +33,15 @@ function resolveEnvVars(obj: any): any {
         'PUBKY_AUTH_USERNAME': '',
         'PUBKY_AUTH_PASSWORD': '',
         'BRAVE_MCP_BASE_URL': 'http://localhost:8921/mcp',
-        'BRAVE_MCP_TOKEN': 'Bearer dummy-token'
+        'BRAVE_MCP_TOKEN': 'Bearer dummy-token',
+        'THREAD_MAX_DEPTH': '100',
+        'THREAD_MAX_POSTS': '1500',
+        'THREAD_MAX_TOKENS_FOR_AI': '15000',
+        'THREAD_TOKEN_WARNING_THRESHOLD': '10000',
+        'AI_MAX_TOKENS_SUMMARY': '1500',
+        'AI_MAX_TOKENS_FACTCHECK': '1500',
+        'AI_MAX_TOKENS_CLASSIFIER': '500',
+        'AI_CLASSIFIER_TEMPERATURE': '0.1'
       };
 
       return fallbacks[varName] || match;
@@ -101,10 +109,6 @@ function processSpecialValues(obj: any): any {
         'AI_MODEL_SUMMARY',
         'AI_MODEL_FACTCHECK',
         'AI_MODEL_CLASSIFIER',
-        'AI_MAX_TOKENS_SUMMARY',
-        'AI_MAX_TOKENS_FACTCHECK',
-        'AI_MAX_TOKENS_CLASSIFIER',
-        'AI_CLASSIFIER_TEMPERATURE',
         'PUBKY_BOT_MNEMONIC'
       ];
 

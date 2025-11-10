@@ -10,7 +10,7 @@ module.exports = {
     '!src/**/*.test.ts',
     '!src/**/*.spec.ts'
   ],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1'
   },
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts']

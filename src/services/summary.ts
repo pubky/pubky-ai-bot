@@ -2,6 +2,7 @@ import { AIService } from './ai';
 import { ThreadContext } from '@/types/thread';
 import logger from '@/utils/logger';
 import { truncateText } from '@/utils/text';
+import appConfig from '@/config';
 
 export interface SummaryOptions {
   maxKeyPoints?: number;
@@ -13,7 +14,8 @@ export interface SummaryOptions {
 export interface SummaryResult {
   summary: string;
   keyPoints: string[];
-  participants: string[];
+  participants: string[]; // Keep for backward compatibility
+  participantNames: string[]; // New field with resolved usernames
   topics: string[];
   metrics: {
     originalTokens: number;
@@ -37,10 +39,11 @@ export class SummaryService {
         totalTokens: context.totalTokens
       });
 
-      // Determine if we need to use fallback for very large threads
-      if (context.totalTokens > 8000) {
-        logger.info('Using fallback summary for large thread', {
-          totalTokens: context.totalTokens
+      // Use configured token limit for AI processing
+      if (context.totalTokens > appConfig.limits.thread.maxTokensForAI) {
+        logger.info('Using fallback summary for very large thread', {
+          totalTokens: context.totalTokens,
+          maxTokensForAI: appConfig.limits.thread.maxTokensForAI
         });
         return this.generateFallbackSummary(context, options);
       }
@@ -100,7 +103,14 @@ Instructions:
 - Keep total response under 500 characters for brief style, 800 for detailed
 - Focus on main discussion topics and conclusions`;
 
-    if (options.includeParticipants) {
+    if (options.includeParticipants && context.participantProfiles) {
+      // Use resolved usernames if available
+      const participantNames = context.participantProfiles
+        .slice(0, 5)
+        .map(p => p.displayName)
+        .join(', ');
+      prompt += `\n- Note the main participants: ${participantNames}`;
+    } else if (options.includeParticipants) {
       prompt += `\n- Note the main participants: ${context.participants.slice(0, 5).join(', ')}`;
     }
 
@@ -159,10 +169,16 @@ Key Points:
       confidence = 'low';
     }
 
+    // Get participant names from profiles if available
+    const participantNames = context.participantProfiles
+      ? context.participantProfiles.slice(0, 5).map(p => p.displayName)
+      : context.participants.slice(0, 5);
+
     return {
       summary: truncateText(summary, 400),
       keyPoints,
       participants: context.participants.slice(0, 5),
+      participantNames,
       topics: context.metadata?.topics || [],
       metrics: {
         originalTokens: context.totalTokens,
@@ -203,10 +219,16 @@ Key Points:
       keyPoints.push('Thread may be incomplete');
     }
 
+    // Get participant names from profiles if available
+    const participantNames = context.participantProfiles
+      ? context.participantProfiles.slice(0, 5).map(p => p.displayName)
+      : context.participants.slice(0, 5);
+
     return {
       summary: truncateText(summary, 300),
       keyPoints: keyPoints.slice(0, options.maxKeyPoints || 3),
       participants: context.participants.slice(0, 5),
+      participantNames,
       topics: context.metadata?.topics || [],
       metrics: {
         originalTokens: context.totalTokens,

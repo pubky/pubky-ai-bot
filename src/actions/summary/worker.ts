@@ -284,6 +284,10 @@ export class SummaryWorker {
         },
         posts: [],
         participants: ['system'],
+        participantProfiles: [{
+          publicKey: 'system',
+          displayName: 'System'
+        }],
         depth: 1,
         totalTokens: 10,
         isComplete: true

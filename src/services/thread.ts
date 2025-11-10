@@ -1,8 +1,9 @@
-import { ThreadContext, ThreadValidation } from '@/types/thread';
+import { ThreadContext, ThreadValidation, ThreadParticipant } from '@/types/thread';
 import { Post } from '@/types/mention';
 import { PubkyService } from './pubky';
 import logger from '@/utils/logger';
 import { extractKeywords } from '@/utils/text';
+import appConfig from '@/config';
 
 export class ThreadService {
   private cache: Map<string, Post> = new Map();
@@ -23,8 +24,9 @@ export class ThreadService {
     } = {}
   ): Promise<ThreadContext> {
     try {
-      const maxDepth = options.maxDepth || 50;
-      const maxPosts = options.maxPosts || 500;
+      // Use limits from configuration (can be overridden by env variables)
+      const maxDepth = options.maxDepth || appConfig.limits.thread.maxDepth;
+      const maxPosts = options.maxPosts || appConfig.limits.thread.maxPosts;
       const includeParents = options.includeParents !== false;
 
       logger.debug('Building thread context', {
@@ -66,6 +68,9 @@ export class ThreadService {
       // Extract participants
       const participants = [...new Set(posts.map(p => p.authorId))];
 
+      // Resolve participant profiles with usernames
+      const participantProfiles = await this.resolveParticipantProfiles(participants);
+
       // Calculate token count (rough estimation)
       const totalTokens = posts.reduce((sum, post) => {
         return sum + Math.ceil(post.content.length / 4); // Rough token estimation
@@ -85,6 +90,7 @@ export class ThreadService {
         rootPost,
         posts,
         participants,
+        participantProfiles, // Include resolved usernames
         depth,
         totalTokens,
         isComplete,
@@ -231,10 +237,10 @@ export class ThreadService {
       issues.push('Thread context is incomplete');
     }
 
-    // Check token count
-    if (context.totalTokens > 4000) {
-      warnings.push('Thread exceeds recommended token limit');
-      recommendations.push('Consider summarizing earlier posts');
+    // Check token count - use configured warning threshold
+    if (context.totalTokens > appConfig.limits.thread.tokenWarningThreshold) {
+      warnings.push(`Thread exceeds recommended token limit (${appConfig.limits.thread.tokenWarningThreshold})`);
+      recommendations.push('Consider summarizing earlier posts or using chunking');
     }
 
     // Check depth
@@ -284,6 +290,35 @@ export class ThreadService {
 
     return Math.min(complexity, 1.0);
   }
+
+  /**
+   * Resolve participant public keys and format them as mentions
+   * Creates participant objects with pk:<pubkey> format for Pubky app mentions
+   */
+  private async resolveParticipantProfiles(publicKeys: string[]): Promise<ThreadParticipant[]> {
+    logger.debug(`Formatting ${publicKeys.length} participant mentions`);
+
+    // Create participant objects with pk:<pubkey> format for mentions
+    const participants: ThreadParticipant[] = publicKeys.map(publicKey => {
+      // Clean the public key if it has prefixes
+      const cleanKey = publicKey
+        .replace(/^pk:/, '')
+        .replace(/^pubky:\/\//, '')
+        .split('/')[0];
+
+      // Format as pk:<pubkey> for proper mentions in Pubky app
+      const displayName = `pk:${cleanKey}`;
+
+      return {
+        publicKey: cleanKey,
+        username: undefined, // Not needed for mentions
+        displayName
+      };
+    });
+
+    return participants;
+  }
+
 
   async getPostsByIds(postIds: string[]): Promise<Post[]> {
     const posts: Post[] = [];

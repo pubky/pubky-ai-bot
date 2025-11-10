@@ -89,7 +89,7 @@ describe('ClassifierService', () => {
         mentionId: 'test-5',
         postId: 'post-5',
         authorId: 'user-5',
-        content: 'Please summarize this discussion for me',
+        content: 'Can you summarize and provide a tl;dr and recap with overview?',
         receivedAt: '2023-01-01T00:00:00Z',
         status: 'received' as const
       };
@@ -98,7 +98,7 @@ describe('ClassifierService', () => {
 
       expect(result.intent).toBe('summary');
       expect(result.method).toBe('heuristic');
-      expect(result.confidence).toBeGreaterThan(0.6);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.75);
       expect(mockAIService.generateObject).not.toHaveBeenCalled();
     });
 

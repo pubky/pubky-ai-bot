@@ -49,12 +49,12 @@ export const ConfigSchema = z.object({
       classifier: z.string()
     }),
     maxTokens: z.object({
-      summary: z.number().min(100).max(4000),
-      factcheck: z.number().min(100).max(4000),
-      classifier: z.number().min(50).max(1000)
+      summary: z.number().min(100).max(10000).default(1500),
+      factcheck: z.number().min(100).max(10000).default(1500),
+      classifier: z.number().min(50).max(2000).default(500)
     }),
     classifier: z.object({
-      temperature: z.number().min(0).max(2).default(0)
+      temperature: z.number().min(0).max(2).default(0.1)
     })
   }),
   search: z.object({
@@ -71,7 +71,13 @@ export const ConfigSchema = z.object({
   }),
   limits: z.object({
     maxConcurrentActions: z.number().min(1).max(20),
-    defaultTimeoutMs: z.number().min(1000).max(120000)
+    defaultTimeoutMs: z.number().min(1000).max(120000),
+    thread: z.object({
+      maxDepth: z.number().min(10).max(500).default(100),
+      maxPosts: z.number().min(50).max(5000).default(1500),
+      maxTokensForAI: z.number().min(1000).max(50000).default(15000),
+      tokenWarningThreshold: z.number().min(1000).max(30000).default(10000)
+    })
   }),
   safety: z.object({
     wordlist: z.array(z.string()),
