@@ -70,10 +70,6 @@ export class ReplyService {
       });
     }
 
-    if (content.confidence === 'low') {
-      reply += '\n\nNote: Confidence is limited due to source availability or quality.';
-    }
-
     return truncateText(reply, 1200); // Increased from 800 to accommodate richer content
   }
 

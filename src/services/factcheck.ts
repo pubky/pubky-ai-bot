@@ -66,8 +66,16 @@ const BraveSearchResultSchema = z.object({
   description: z.string().optional(),
   excerpt: z.string().optional(),
   age: z.string().optional(),
-  date: z.string().optional()
-}).refine(data => (data.url || data.link || data.href) && (data.title || data.name), {
+  date: z.string().optional(),
+  // Additional fields that might come from different MCP providers
+  summary: z.string().optional(),
+  text: z.string().optional(),
+  content: z.string().optional(),
+  source: z.string().optional(),
+  published: z.string().optional(),
+  publishedDate: z.string().optional()
+}).passthrough() // Allow additional fields
+.refine(data => (data.url || data.link || data.href) && (data.title || data.name), {
   message: "Search result must have a URL field and a title field"
 });
 
@@ -87,6 +95,34 @@ const McpToolResultSchema = z.union([
     content: z.union([
       z.array(BraveSearchResultSchema),
       z.string() // JSON string that needs parsing
+    ])
+  }),
+  // Format 4: Object with data field
+  z.object({
+    data: z.union([
+      z.array(BraveSearchResultSchema),
+      BraveSearchResultSchema
+    ])
+  }),
+  // Format 5: Object with results field
+  z.object({
+    results: z.union([
+      z.array(BraveSearchResultSchema),
+      BraveSearchResultSchema
+    ])
+  }),
+  // Format 6: Object with items field
+  z.object({
+    items: z.union([
+      z.array(BraveSearchResultSchema),
+      BraveSearchResultSchema
+    ])
+  }),
+  // Format 7: Object with search_results field
+  z.object({
+    search_results: z.union([
+      z.array(BraveSearchResultSchema),
+      BraveSearchResultSchema
     ])
   })
 ]);
@@ -370,12 +406,21 @@ Focus on the most significant and checkable claims. Ignore trivial or obvious fa
     let searchCount = 0;
     const evidence: Evidence[] = [];
 
-    // Build Grok-style verification prompt for structured output
-    const prompt = `You are a witty, insightful fact-checker. Verify this claim by searching for evidence and explaining what you find in a conversational way - like talking to a friend.
+    // Build a direct, findings-focused prompt for structured output
+    const prompt = `Fact-check this claim by searching for evidence and reporting your findings directly:
 
-CLAIM: "${claim.text}"
+"${claim.text}"
 
-Search for reliable sources, consider multiple perspectives, and synthesize what you find into a clear, nuanced explanation. Be conversational and engaging, not robotic. Acknowledge complexity and alternative viewpoints when they exist.`;
+Instructions:
+1. Search for evidence using the brave_web_search tool
+2. Report what you found in 2-3 clear, conversational sentences
+3. Focus on the actual findings from your search, not meta-commentary
+4. Be specific about what sources say, using natural language
+5. If you find conflicting information, explain both perspectives naturally
+
+DO NOT say things like "I verified X claims" or "Based on my search" - just report the findings directly.
+Example good response: "The EU's Radio Spectrum Policy Group is indeed considering splitting the 6 GHz band between mobile and WiFi uses, according to their November 2024 draft opinion."
+Example bad response: "I searched for evidence about this claim and found multiple sources confirming..."`;
 
     try {
       // Use AI with MCP tools to verify the claim and get structured output
@@ -417,8 +462,21 @@ Search for reliable sources, consider multiple perspectives, and synthesize what
     } catch (error) {
       logger.error('Error in structured claim verification:', error);
 
-      // Fall back to the original text-based method
-      return this.verifySingleClaim(claim, tools);
+      // Return a low-confidence result instead of failing completely
+      const fallbackVerification: VerifiedClaim = {
+        claim: claim.text,
+        verdict: `I wasn't able to fully verify this claim due to technical limitations, but I'll continue checking other aspects of the content.`,
+        confidence: 0.2,
+        evidence: evidence.slice(0, 3),
+        reasoning: `Unable to complete verification due to technical issues.`,
+        alternativePerspectives: []
+      };
+
+      return {
+        verifiedClaim: fallbackVerification,
+        evidence,
+        searchQueries: searchCount
+      };
     }
   }
 
@@ -454,22 +512,19 @@ Search for reliable sources, consider multiple perspectives, and synthesize what
     // Initialize evidence tracking
     const evidence: Evidence[] = [];
 
-    // Build concise verification prompt
-    const prompt = `Verify this claim by searching for evidence: "${claim.text}"
+    // Build direct, findings-focused prompt
+    const prompt = `Search for evidence about this claim and report your findings directly: "${claim.text}"
 
-REQUIRED: Use the brave_web_search tool to find evidence before responding.
+Use the brave_web_search tool to find evidence.
 
-After searching, provide:
+Respond with your findings in a natural, conversational way. Start directly with what you found - for example: "The EU's Radio Spectrum Policy Group is indeed considering..." or "Multiple sources confirm that..." or "According to Reuters and BBC..."
 
-NARRATIVE SUMMARY:
-2-3 conversational sentences explaining what you found. Include source quality (e.g., "Reuters reports..." or "peer-reviewed studies show...") and any important nuances.
+Include:
+- What the evidence shows (2-3 sentences)
+- How confident you are based on source quality
+- Any conflicting information if relevant
 
-CONFIDENCE: high/medium/low with brief reason
-
-ALTERNATIVE PERSPECTIVES:
-(If relevant) Note any legitimate alternative viewpoints
-
-Be conversational and balanced - explain what you found, not just true/false.`;
+DO NOT include meta-commentary like "I searched for" or "I found X sources" or "Based on my search". Just state the findings directly as facts from the sources.`;
 
     // Generate verification with required tool usage
     const result = await this.verifyWithRetry(claim, tools, prompt);
@@ -503,8 +558,17 @@ Be conversational and balanced - explain what you found, not just true/false.`;
       }
     }
 
-    // Parse AI response for verdict
-    const verification = this.parseVerificationResponse(result.text, claim.text, evidence);
+    // Build narrative: prefer AI response, fall back to evidence-based narrative if too short
+    let aiText = (result.text || '').trim();
+    if (aiText.length < 50 && evidence.length > 0) {
+      const rebuilt = this.buildNarrativeFromEvidence(claim.text, evidence);
+      if (rebuilt.trim().length > 0) {
+        aiText = rebuilt;
+      }
+    }
+
+    // Parse final narrative for verdict
+    const verification = this.parseVerificationResponse(aiText, claim.text, evidence);
 
     // Ensure verdict is populated
     if (!verification.verdict?.trim()) {
@@ -537,11 +601,19 @@ Be conversational and balanced - explain what you found, not just true/false.`;
         );
 
         // Check if tools were actually used
-        const hasToolUsage = result.toolResults?.length > 0 ||
+        const toolCallsCount = (result as any).toolCalls?.length || 0;
+        const toolResultsCount = result.toolResults?.length || 0;
+        const hasToolUsage = toolResultsCount > 0 ||
+                             toolCallsCount > 0 ||
                              (result.text?.includes('searched') && result.text?.includes('found'));
 
-        if (hasToolUsage && result.text?.trim()) {
-          logger.debug('Successful tool usage on attempt', { attempt, claim: claim.text.substring(0, 50) });
+        if (hasToolUsage) {
+          logger.debug('Successful tool usage on attempt', {
+            attempt,
+            claim: claim.text.substring(0, 50),
+            toolCalls: toolCallsCount,
+            toolResults: toolResultsCount
+          });
           return result;
         }
 
@@ -578,6 +650,13 @@ Be conversational and balanced - explain what you found, not just true/false.`;
   }
 
   private extractEvidenceFromSearch(toolResult: any): EnhancedEvidence[] {
+    // Log the raw tool result for debugging
+    logger.debug('Raw MCP tool result', {
+      toolResult,
+      keys: toolResult ? Object.keys(toolResult) : [],
+      type: typeof toolResult
+    });
+
     // Handle string content that needs JSON parsing
     let processedResult = toolResult;
     if (toolResult?.content && typeof toolResult.content === 'string') {
@@ -589,21 +668,81 @@ Be conversational and balanced - explain what you found, not just true/false.`;
       }
     }
 
-    // Validate with Zod schema - no fallback
+    // Extract search results with flexible field detection (primary approach)
     let searchResults: any[] = [];
-    try {
-      const validated = McpToolResultSchema.parse(processedResult);
 
-      // Extract search results based on validated format
-      if (Array.isArray(validated)) {
-        searchResults = validated;
-      } else if ('result' in validated) {
-        searchResults = Array.isArray(validated.result) ? validated.result : [validated.result];
-      } else if ('content' in validated) {
-        searchResults = Array.isArray(validated.content) ? validated.content : [validated.content];
+    // Try common field patterns first (most reliable)
+    if (processedResult && typeof processedResult === 'object') {
+      // Check for array at root level
+      if (Array.isArray(processedResult)) {
+        searchResults = processedResult;
+      } else {
+        // Check for common field names that contain results
+        const possibleFields = ['result', 'content', 'data', 'results', 'items', 'search_results', 'output', 'response'];
+        for (const field of possibleFields) {
+          if (processedResult[field]) {
+            const fieldData = processedResult[field];
+            if (Array.isArray(fieldData)) {
+              searchResults = fieldData;
+              break;
+            } else if (typeof fieldData === 'object') {
+              searchResults = [fieldData];
+              break;
+            }
+          }
+        }
+
+        // Special handling for Brave MCP shape: output.content[] as text JSON items
+        if (searchResults.length === 0 && processedResult.output && typeof processedResult.output === 'object') {
+          const out = processedResult.output;
+          const content = Array.isArray(out.content) ? out.content : [];
+          const parsed: any[] = [];
+          for (const item of content) {
+            const text = item?.text;
+            if (typeof text === 'string') {
+              try {
+                const obj = JSON.parse(text);
+                if (Array.isArray(obj)) {
+                  parsed.push(...obj);
+                } else if (obj && typeof obj === 'object') {
+                  parsed.push(obj);
+                }
+              } catch {
+                // ignore non-JSON text entries
+              }
+            }
+          }
+          if (parsed.length > 0) {
+            searchResults = parsed;
+          }
+        }
+
+        // If still no results, try to use the object itself if it has URL/title-like fields
+        if (searchResults.length === 0) {
+          if ((processedResult.url || processedResult.link || processedResult.href) &&
+              (processedResult.title || processedResult.name)) {
+            searchResults = [processedResult];
+          }
+        }
       }
-    } catch (zodError) {
-      logger.error('Invalid MCP response format', zodError);
+    }
+
+    // Optionally validate with Zod schema for better type safety (but don't fail on errors)
+    if (searchResults.length > 0) {
+      try {
+        const validated = McpToolResultSchema.parse(processedResult);
+        logger.debug('MCP response validated successfully');
+      } catch (zodError) {
+        // Log at debug level since we have a working fallback
+        logger.debug('MCP response format differs from schema, using flexible extraction', {
+          keys: processedResult ? Object.keys(processedResult) : [],
+          resultsFound: searchResults.length
+        });
+      }
+    }
+
+    if (searchResults.length === 0) {
+      logger.debug('No search results extracted from MCP response');
       return [];
     }
 
@@ -640,6 +779,23 @@ Be conversational and balanced - explain what you found, not just true/false.`;
     });
 
     return evidence;
+  }
+
+  private buildNarrativeFromEvidence(claimText: string, evidence: EnhancedEvidence[]): string {
+    if (!evidence || evidence.length === 0) {
+      return '';
+    }
+
+    const top = evidence.slice(0, 2);
+    const parts: string[] = [];
+    parts.push(`Found ${evidence.length} relevant sources via web search.`);
+    for (const item of top) {
+      const excerpt = (item.excerpt || '').replace(/<[^>]+>/g, '').trim();
+      const trimmed = excerpt.length > 200 ? excerpt.slice(0, 197) + '...' : excerpt;
+      parts.push(`${item.title} (${item.source}) — ${trimmed}`);
+    }
+    parts.push(`These sources discuss the claim: "${claimText}".`);
+    return parts.join(' ');
   }
 
   private extractDomain(url: string): string {
@@ -731,61 +887,56 @@ Be conversational and balanced - explain what you found, not just true/false.`;
       responsePreview: aiResponse.substring(0, 200)
     });
 
-    // Extract narrative summary (primary approach for Grok-style responses)
-    let narrative = '';
-    const narrativeMatch = aiResponse.match(/NARRATIVE SUMMARY:\s*(.+?)(?=\n\n|CONFIDENCE:|ALTERNATIVE PERSPECTIVES:|$)/is);
-    if (narrativeMatch) {
-      narrative = narrativeMatch[1].trim();
-      logger.debug('Narrative summary extracted', { length: narrative.length });
+    // Since we're asking for direct findings without headers, use the entire response as the narrative
+    let narrative = aiResponse.trim();
+
+    // Remove any accidental meta-commentary if it slipped through
+    narrative = narrative
+      .replace(/^I searched for.*?\. /i, '')
+      .replace(/^I found.*?\. /i, '')
+      .replace(/^Based on my search.*?\. /i, '')
+      .replace(/^After searching.*?\. /i, '')
+      .trim();
+
+    // If the response is empty or too short, use a fallback
+    if (narrative.length < 50) {
+      narrative = 'Unable to verify this claim with the available search results.';
+      logger.warn('Response too short, using fallback', {
+        originalLength: aiResponse.length,
+        response: aiResponse.substring(0, 300)
+      });
     } else {
-      // Fallback 1: Look for any substantial paragraph after the claim
-      const paragraphs = aiResponse.split('\n\n').map(p => p.trim()).filter(p => p.length > 100);
-      narrative = paragraphs.find(p =>
-        !p.includes('CLAIM') &&
-        !p.includes('INSTRUCTIONS') &&
-        !p.includes('YOUR APPROACH')
-      ) || '';
-
-      if (narrative) {
-        logger.debug('Narrative extracted from paragraph', { length: narrative.length });
-      } else {
-        // Fallback 2: Use entire response minus headers
-        narrative = aiResponse
-          .replace(/NARRATIVE SUMMARY:|CONFIDENCE:|ALTERNATIVE PERSPECTIVES:/g, '')
-          .split('\n\n')
-          .find(p => p.length > 50) || 'Unable to extract verification summary from LLM response';
-
-        logger.warn('Could not extract clear narrative, using fallback', {
-          response: aiResponse.substring(0, 300)
-        });
-      }
+      logger.debug('Using direct response as narrative', { length: narrative.length });
     }
 
-    // Extract alternative perspectives if present
-    const perspectives: string[] = [];
-    const perspectivesMatch = aiResponse.match(/ALTERNATIVE PERSPECTIVES:\s*(.+?)(?=\n\n|$)/is);
-    if (perspectivesMatch) {
-      const perspectiveText = perspectivesMatch[1].trim();
-      // Parse bullet points or numbered lists
-      const items = perspectiveText
-        .split(/\n[-•*]|\n\d+\./)
-        .map(s => s.trim())
-        .filter(s => s.length > 10 && !s.startsWith('['));
-      perspectives.push(...items);
-      logger.debug('Alternative perspectives extracted', { count: perspectives.length });
-    }
-
-    // Calculate confidence based on evidence quality and LLM confidence
+    // Extract confidence from natural language (no headers expected)
     let confidenceScore = 0.5; // Default medium
+    const perspectives: string[] = [];
 
-    // Check if LLM expressed confidence
-    const confidenceMatch = aiResponse.match(/CONFIDENCE:\s*(high|medium|low)(.+)?/i);
-    if (confidenceMatch) {
-      const llmConfidence = confidenceMatch[1].toLowerCase();
-      if (llmConfidence === 'high') confidenceScore = 0.8;
-      else if (llmConfidence === 'medium') confidenceScore = 0.5;
-      else if (llmConfidence === 'low') confidenceScore = 0.3;
-      logger.debug('Confidence extracted', { level: llmConfidence, reason: confidenceMatch[2]?.trim() });
+    // Look for confidence expressions in the text
+    const lowerResponse = aiResponse.toLowerCase();
+    if (lowerResponse.includes('strongly confirm') || lowerResponse.includes('definitively') ||
+        lowerResponse.includes('clearly shows') || lowerResponse.includes('conclusive')) {
+      confidenceScore = 0.8;
+      logger.debug('High confidence detected from language');
+    } else if (lowerResponse.includes('appears to') || lowerResponse.includes('suggests') ||
+               lowerResponse.includes('likely') || lowerResponse.includes('seems')) {
+      confidenceScore = 0.5;
+      logger.debug('Medium confidence detected from language');
+    } else if (lowerResponse.includes('limited evidence') || lowerResponse.includes('unclear') ||
+               lowerResponse.includes('disputed') || lowerResponse.includes('conflicting')) {
+      confidenceScore = 0.3;
+      logger.debug('Low confidence detected from language');
+    }
+
+    // Look for alternative viewpoints mentioned naturally
+    if (lowerResponse.includes('however') || lowerResponse.includes('on the other hand') ||
+        lowerResponse.includes('alternatively') || lowerResponse.includes('critics argue')) {
+      // Extract the contrasting viewpoint if mentioned
+      const contrastMatch = aiResponse.match(/(?:however|on the other hand|alternatively|critics argue)[\s,]+(.+?)(?:\.|$)/i);
+      if (contrastMatch) {
+        perspectives.push(contrastMatch[1].trim());
+      }
     }
 
     // Adjust based on evidence quality if available
@@ -832,20 +983,23 @@ Be conversational and balanced - explain what you found, not just true/false.`;
       // Single claim: use its full narrative
       narrative = verifiedClaims[0].reasoning;
     } else {
-      // Multiple claims: create a synthesized narrative
-      narrative = `I verified ${verifiedClaims.length} claims here. `;
-
-      // Add snippet from most confident claim
+      // Multiple claims: synthesize narratives naturally
+      // Start with the most confident claim's full reasoning
       const mostConfident = [...verifiedClaims].sort((a, b) => b.confidence - a.confidence)[0];
-      const firstSentence = mostConfident.reasoning.split(/[.!?]/)[0];
-      if (firstSentence) {
-        narrative += firstSentence + '. ';
-      }
+      narrative = mostConfident.reasoning;
 
-      // Add confidence context
-      const confidenceLevel = avgConfidence > 0.7 ? 'High' : avgConfidence > 0.4 ? 'Moderate' : 'Limited';
-      const totalEvidence = verifiedClaims.reduce((sum, c) => sum + c.evidence.length, 0);
-      narrative += `${confidenceLevel} confidence overall, based on ${totalEvidence} sources across multiple searches.`;
+      // Add additional context from other high-confidence claims if they add value
+      const otherHighConfidence = verifiedClaims
+        .filter(c => c !== mostConfident && c.confidence > 0.5)
+        .slice(0, 1); // Take at most one additional high-confidence claim
+
+      if (otherHighConfidence.length > 0) {
+        // Extract a key sentence from the additional claim
+        const additionalContext = otherHighConfidence[0].reasoning.split(/[.!?]/)[0];
+        if (additionalContext && !narrative.includes(additionalContext)) {
+          narrative += ' Additionally, ' + additionalContext.toLowerCase() + '.';
+        }
+      }
     }
 
     return {

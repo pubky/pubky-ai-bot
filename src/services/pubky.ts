@@ -433,24 +433,43 @@ export class PubkyService {
    */
   async getPost(postUri: string): Promise<Post | null> {
     try {
-      const postData = await this.pubky.publicStorage.getJson(postUri as any) as PubkyAppPost | null;
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const postData = await this.pubky.publicStorage.getJson(postUri as any) as PubkyAppPost | null;
 
-      if (!postData || typeof postData !== 'object') {
-        return null;
+          if (!postData || typeof postData !== 'object') {
+            return null;
+          }
+
+          const post: Post = {
+            id: postUri.split('/').pop() || postUri,
+            uri: postUri,
+            content: postData.content || '',
+            authorId: this.extractPubkey(postUri),
+            createdAt: new Date().toISOString(),
+            parentUri: postData.parent
+          };
+
+          return post;
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          const is502 = /\b502\b|Bad Gateway/i.test(msg);
+          if (is502 && attempt < maxAttempts) {
+            await new Promise(res => setTimeout(res, 250 * attempt));
+            continue;
+          }
+          throw e;
+        }
       }
-
-      const post: Post = {
-        id: postUri.split('/').pop() || postUri,
-        uri: postUri,
-        content: postData.content || '',
-        authorId: this.extractPubkey(postUri),
-        createdAt: new Date().toISOString(),
-        parentUri: postData.parent
-      };
-
-      return post;
-    } catch (error) {
-      logger.error(`Failed to fetch post ${postUri}:`, error);
+      return null;
+    } catch (error: any) {
+      const msg = String(error?.message || error);
+      if (/\b502\b|Bad Gateway/i.test(msg)) {
+        logger.warn(`Failed to fetch post ${postUri}: 502 Bad Gateway`);
+      } else {
+        logger.error(`Failed to fetch post ${postUri}:`, error);
+      }
       return null;
     }
   }
@@ -469,7 +488,22 @@ export class PubkyService {
         return null;
       }
 
-      const postData = await this.pubky.publicStorage.getJson(postUri as any) as PubkyAppPost | null;
+      let postData: PubkyAppPost | null = null;
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          postData = await this.pubky.publicStorage.getJson(postUri as any) as PubkyAppPost | null;
+          break;
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          const is502 = /\b502\b|Bad Gateway/i.test(msg);
+          if (is502 && attempt < maxAttempts) {
+            await new Promise(res => setTimeout(res, 250 * attempt));
+            continue;
+          }
+          throw e;
+        }
+      }
 
       if (!postData || typeof postData !== 'object') {
         return null;
@@ -486,8 +520,13 @@ export class PubkyService {
 
       return post;
 
-    } catch (error) {
-      logger.error('Failed to fetch post:', error);
+    } catch (error: any) {
+      const msg = String(error?.message || error);
+      if (/\b502\b|Bad Gateway/i.test(msg)) {
+        logger.warn('Failed to fetch post: 502 Bad Gateway');
+      } else {
+        logger.error('Failed to fetch post:', error);
+      }
       return null;
     }
   }

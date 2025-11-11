@@ -196,6 +196,9 @@ function validateConfig(): Config {
     const processedConfig = processSpecialValues(resolvedConfig);
     const validated = ConfigSchema.parse(processedConfig);
 
+    // Note: Do not cross-validate staging/testnet/mainnet here.
+    // Staging can legitimately point to mainnet infrastructure.
+
     // Normalize MCP Brave base URL to include '/mcp' path if missing
     try {
       const u = new URL(validated.mcp.brave.baseUrl);

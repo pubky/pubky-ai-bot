@@ -39,6 +39,7 @@
     "@ai-sdk/groq": "^2.0.27",
     "@ai-sdk/mcp": "^0.0.1",
     "@ai-sdk/openai": "^2.0.59",
+    "@modelcontextprotocol/sdk": "^1.21.1",
     "@synonymdev/pubky": "^0.6.0-rc.6",
     "ai": "^5.0.85",
     "bip39": "^3.1.0",

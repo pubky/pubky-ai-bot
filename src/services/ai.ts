@@ -153,7 +153,7 @@ export class AIService {
       stopWhen?: any;
       maxRetries?: number;
     }
-  ): Promise<{ text: string; usage?: any; toolResults?: any[]; provider?: ProviderName }> {
+  ): Promise<{ text: string; usage?: any; toolCalls?: any[]; toolResults?: any[]; provider?: ProviderName }> {
     const maxTokens = appConfig.ai.maxTokens[purpose];
     const timeout = appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
@@ -161,19 +161,36 @@ export class AIService {
     try {
       const result = await this.executeWithFallback(
         async (model, providerName) => {
+          // Decide whether to force tool usage based on provider and model
+          const modelId = appConfig.ai.models[purpose];
+          const shouldForce = options?.tools
+            ? this.shouldForceToolChoice(providerName, modelId)
+            : false;
+
           const response = await withTimeout(
             generateText({
               model,
               prompt,
               tools: options?.tools,
+              toolChoice: shouldForce ? 'required' : undefined,
               maxRetries: options?.maxRetries || 1
             }),
             timeout
           );
 
+          try {
+            logger.debug('AI tool usage debug', {
+              provider: providerName,
+              purpose,
+              toolCalls: (response as any)?.toolCalls?.length || 0,
+              toolResults: (response as any)?.toolResults?.length || 0
+            });
+          } catch {}
+
           return {
             text: response.text,
             usage: response.usage,
+            toolCalls: (response as any).toolCalls,
             toolResults: response.toolResults,
             provider: providerName
           };
@@ -195,6 +212,24 @@ export class AIService {
       logger.error(`AI text generation failed after ${duration}ms:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Determine whether to force tool usage for a given provider/model.
+   * We only force for providers/models known to reliably support tool calls.
+   */
+  private shouldForceToolChoice(provider: ProviderName, modelId: string): boolean {
+    // OpenAI native supports tool calling well
+    if (provider === 'openai') return true;
+
+    // For OpenRouter, only force when using OpenAI-backed models via OpenRouter
+    // e.g., 'openai/gpt-4o-mini'. Anthropic and some others may ignore tool calls via OpenRouter.
+    if (provider === 'openrouter') {
+      return /^openai\//i.test(modelId);
+    }
+
+    // Groq and Anthropic: be conservative (do not force) unless we verify support
+    return false;
   }
 
   /**
