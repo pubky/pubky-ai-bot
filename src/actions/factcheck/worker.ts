@@ -1,7 +1,7 @@
 import { EventBus } from '@/core/event-bus';
 import { ActionRequestedV1, ActionCompletedV1, ActionFailedV1 } from '@/core/events';
 import { IdempotencyService } from '@/core/idempotency';
-import { FactcheckService } from '@/services/factcheck';
+import { FactcheckWebSearchService } from '@/services/factcheck-websearch';
 import { ThreadService } from '@/services/thread';
 import { ReplyService, ReplyContent } from '@/services/reply';
 import { SafetyService } from '@/services/safety';
@@ -14,7 +14,7 @@ export class FactcheckWorker {
   constructor(
     private eventBus: EventBus,
     private idempotency: IdempotencyService,
-    private factcheckService: FactcheckService,
+    private factcheckService: FactcheckWebSearchService,
     private threadService: ThreadService,
     private replyService: ReplyService,
     private safetyService: SafetyService,
@@ -144,10 +144,7 @@ export class FactcheckWorker {
         claimCount: claims.length
       });
 
-      let factcheckResult = await this.factcheckService.verify(claims);
-
-      // Clean MCP protocol data from the result before using it
-      factcheckResult = this.cleanMcpData(factcheckResult);
+      const factcheckResult = await this.factcheckService.verify(claims);
 
       // Format reply
       const replyContent = this.formatFactcheckReply(factcheckResult);
@@ -206,86 +203,6 @@ export class FactcheckWorker {
       endActionTimer();
       throw error;
     }
-  }
-
-  private cleanMcpData(data: any): any {
-    // MCP protocol fields that should be removed
-    const mcpFields = [
-      'toolName',
-      'toolInput',
-      'bravewebsearch',
-      'resultsfilter',
-      'safesearch',
-      'spellcheck',
-      'textdecorations',
-      'tool_calls',
-      'tool_use',
-      'function_calls'
-    ];
-
-    const cleanMcpResponse = (response: any): any => {
-      if (!response) return response;
-
-      if (typeof response === 'string') {
-        // Clean string responses
-        let cleaned = response;
-        mcpFields.forEach(field => {
-          // Remove JSON patterns like {"toolName": ...}
-          const patterns = [
-            new RegExp(`"${field}":\\s*[^,}]+[,}]`, 'gi'),
-            new RegExp(`{[^}]*"${field}"[^}]*}`, 'gi')
-          ];
-          patterns.forEach(pattern => {
-            cleaned = cleaned.replace(pattern, (match) => {
-              // Keep structure but remove content
-              return match.includes('}') ? '{}' : '';
-            });
-          });
-        });
-        return cleaned;
-      }
-
-      if (typeof response === 'object') {
-        // Clone to avoid mutation
-        const cleaned = Array.isArray(response) ? [...response] : { ...response };
-
-        // Remove MCP fields
-        if (!Array.isArray(cleaned)) {
-          mcpFields.forEach(field => {
-            delete cleaned[field];
-            // Also check camelCase and snake_case variations
-            delete cleaned[field.toLowerCase()];
-            delete cleaned[field.replace(/([A-Z])/g, '_$1').toLowerCase()];
-          });
-        }
-
-        // Recursively clean nested objects
-        Object.keys(cleaned).forEach(key => {
-          if (cleaned[key] && typeof cleaned[key] === 'object') {
-            cleaned[key] = cleanMcpResponse(cleaned[key]);
-          }
-        });
-
-        return cleaned;
-      }
-
-      return response;
-    };
-
-    // Clean the entire data object
-    const cleanedData = cleanMcpResponse(data);
-
-    // Log if cleaning was needed
-    const originalStr = JSON.stringify(data);
-    const cleanedStr = JSON.stringify(cleanedData);
-    if (originalStr !== cleanedStr) {
-      logger.info('MCP protocol data was cleaned', {
-        originalLength: originalStr.length,
-        cleanedLength: cleanedStr.length
-      });
-    }
-
-    return cleanedData;
   }
 
   private formatFactcheckReply(result: any): ReplyContent {

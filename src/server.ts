@@ -20,7 +20,7 @@ import { ThreadService } from '@/services/thread';
 import { ReplyService } from '@/services/reply';
 import { ClassifierService } from '@/services/classifier';
 import { SummaryService } from '@/services/summary';
-import { FactcheckService } from '@/services/factcheck';
+import { FactcheckWebSearchService } from '@/services/factcheck-websearch';
 import { McpClientService } from '@/services/mcp/client';
 import { MentionPoller } from '@/services/poller';
 
@@ -55,7 +55,7 @@ class PubkyBot {
   private replyService: ReplyService;
   private classifierService: ClassifierService;
   private summaryService: SummaryService;
-  private factcheckService: FactcheckService;
+  private factcheckService: FactcheckWebSearchService;
   private mcpClient: McpClientService;
 
   // Orchestration & Workers
@@ -106,7 +106,7 @@ class PubkyBot {
     this.replyService = new ReplyService(this.pubkyService, this.safetyService);
     this.classifierService = new ClassifierService(this.aiService);
     this.summaryService = new SummaryService(this.aiService);
-    this.factcheckService = new FactcheckService(this.aiService, this.mcpClient);
+    this.factcheckService = new FactcheckWebSearchService(this.aiService);
 
     // Orchestration
     this.router = new Router(

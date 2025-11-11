@@ -72,6 +72,7 @@ export const ConfigSchema = z.object({
   limits: z.object({
     maxConcurrentActions: z.number().min(1).max(20),
     defaultTimeoutMs: z.number().min(1000).max(120000),
+    factcheckTimeoutMs: z.number().min(1000).max(300000).optional().default(180000), // 90s for reasoning models
     thread: z.object({
       maxDepth: z.number().min(10).max(500).default(100),
       maxPosts: z.number().min(50).max(5000).default(1500),

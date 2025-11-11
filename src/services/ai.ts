@@ -155,7 +155,10 @@ export class AIService {
     }
   ): Promise<{ text: string; usage?: any; toolCalls?: any[]; toolResults?: any[]; provider?: ProviderName }> {
     const maxTokens = appConfig.ai.maxTokens[purpose];
-    const timeout = appConfig.limits.defaultTimeoutMs;
+    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    const timeout = purpose === 'factcheck'
+      ? appConfig.limits.factcheckTimeoutMs
+      : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
     try {
@@ -233,6 +236,82 @@ export class AIService {
   }
 
   /**
+   * Generate text using OpenAI's native web search capability
+   * Only works with OpenAI provider
+   */
+  async generateTextWithWebSearch(
+    prompt: string,
+    purpose: 'summary' | 'factcheck',
+    options?: {
+      maxRetries?: number;
+    }
+  ): Promise<{ text: string; usage?: any; toolCalls?: any[]; toolResults?: any[]; sources?: any[]; provider?: ProviderName }> {
+    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    const timeout = purpose === 'factcheck'
+      ? appConfig.limits.factcheckTimeoutMs
+      : appConfig.limits.defaultTimeoutMs;
+    const startTime = Date.now();
+
+    // Check if OpenAI is available
+    if (appConfig.ai.primaryProvider !== 'openai') {
+      throw new Error('Web search requires OpenAI as the primary provider');
+    }
+
+    try {
+      // Get OpenAI client directly
+      const apiKey = appConfig.ai.apiKeys.openai;
+      if (!apiKey || apiKey.startsWith('dummy-')) {
+        throw new Error('Valid OpenAI API key required for web search');
+      }
+
+      const { createOpenAI } = await import('@ai-sdk/openai');
+      const openai = createOpenAI({ apiKey });
+
+      // Use OpenAI's responses model with web_search_preview tool
+      const response = await withTimeout(
+        generateText({
+          model: openai.responses('gpt-4o-mini'),
+          prompt,
+          tools: {
+            web_search_preview: openai.tools.webSearchPreview({})
+          },
+          maxRetries: options?.maxRetries || 1
+        }),
+        timeout
+      );
+
+      logger.debug('OpenAI web search tool usage', {
+        provider: 'openai',
+        purpose,
+        toolCalls: (response as any)?.toolCalls?.length || 0,
+        toolResults: (response as any)?.toolResults?.length || 0,
+        sources: (response as any)?.sources?.length || 0
+      });
+
+      const duration = Date.now() - startTime;
+      logger.debug(`AI web search generation completed in ${duration}ms`, {
+        purpose,
+        provider: 'openai',
+        tokenCount: response.usage?.totalTokens
+      });
+
+      return {
+        text: response.text,
+        usage: response.usage,
+        toolCalls: (response as any).toolCalls,
+        toolResults: response.toolResults,
+        sources: (response as any).sources,
+        provider: 'openai'
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error(`AI web search generation failed after ${duration}ms:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Extract JSON from text that might be wrapped in markdown code blocks
    */
   private extractJsonFromText(text: string): any {
@@ -270,13 +349,16 @@ export class AIService {
     schema: any,
     purpose: 'classifier' | 'factcheck' = 'classifier'
   ): Promise<{ object: T; usage?: any; provider?: ProviderName }> {
-    const maxTokens = appConfig.ai.maxTokens[purpose];
+    const maxTokens = appConfig.ai.maxTokens[purpose === 'factcheck' ? 'factcheck' : 'classifier'];
     const temperature = purpose === 'classifier'
       ? appConfig.ai.classifier.temperature
       : purpose === 'factcheck'
         ? 0.3 // Lower temperature for factchecking (more deterministic)
         : undefined;
-    const timeout = appConfig.limits.defaultTimeoutMs;
+    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    const timeout = purpose === 'factcheck'
+      ? appConfig.limits.factcheckTimeoutMs
+      : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
     try {
