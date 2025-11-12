@@ -29,12 +29,9 @@ services:
       - AI_MAX_TOKENS_FACTCHECK=${AI_MAX_TOKENS_FACTCHECK:-800}
       - AI_MAX_TOKENS_CLASSIFIER=${AI_MAX_TOKENS_CLASSIFIER:-200}
       - AI_CLASSIFIER_TEMPERATURE=${AI_CLASSIFIER_TEMPERATURE:-0}
-      - BRAVE_API_KEY=${BRAVE_API_KEY}
-      - BRAVE_MCP_BASE_URL=${BRAVE_MCP_BASE_URL:-http://host.docker.internal:8921/mcp}
     depends_on:
       - postgres
       - redis
-      - brave-mcp
     volumes:
       - .:/app
       - /app/node_modules
@@ -72,29 +69,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # Optional: Redis Commander for debugging
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    environment:
-      - REDIS_HOSTS=local:redis:6379
-    ports:
-      - "${REDIS_COMMANDER_PORT:-8081}:8081"
-    depends_on:
-      - redis
-    profiles:
-      - debug
-
-  # Brave Search MCP Server
-  brave-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile.brave-mcp
-    environment:
-      - BRAVE_API_KEY=${BRAVE_API_KEY}
-    ports:
-      - "${BRAVE_MCP_PORT:-8921}:8921"
-    restart: unless-stopped
 
 volumes:
   postgres_data:
