@@ -103,6 +103,12 @@ export class PubkyService {
     }
   }
 
+  private assertAuthenticated(): void {
+    if (!this.session) {
+      throw new Error('Not authenticated. Session is required for this operation.');
+    }
+  }
+
   private extractPubkeyFromUrl(url: string): string {
     // Extract pubkey from URL format
     // Could be: https://homeserver.com or pubky://[pubkey] or just [pubkey]
@@ -176,24 +182,16 @@ export class PubkyService {
 
   private async authenticateToHomeserver() {
     if (!this.keypair) {
-      logger.warn('No keypair available for authentication');
-      return;
+      throw new Error('CRITICAL: No keypair available for authentication');
     }
 
     try {
       const signer = this.pubky.signer(this.keypair);
-
-      // Try to sign in first (if already registered)
-      try {
-        this.session = await signer.signin();
-        logger.info('Successfully signed in to homeserver');
-      } catch (signinError) {
-        logger.warn('Sign in failed, bot may not be registered yet:', signinError);
-        // In a production environment, you might want to handle signup here
-        // For now, we'll just log the error
-      }
+      this.session = await signer.signin();
+      logger.info('Successfully signed in to homeserver');
     } catch (error) {
-      logger.error('Failed to authenticate to homeserver:', error);
+      logger.error('CRITICAL: Failed to authenticate to homeserver:', error);
+      throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}. Bot cannot operate without valid session.`);
     }
   }
 
@@ -532,15 +530,13 @@ export class PubkyService {
   }
 
   async publishReply(options: PublishReplyOptions): Promise<PublishReplyResult> {
+    this.assertAuthenticated();
+
     try {
       logger.debug('Publishing reply', {
         parentUri: options.parentUri,
         contentLength: options.content.length
       });
-
-      if (!this.session) {
-        throw new Error('No active session, cannot publish reply');
-      }
 
       if (!this.botPublicKey) {
         throw new Error('Bot public key not initialized');
@@ -654,11 +650,9 @@ export class PubkyService {
   }
 
   async updateBotProfile(profile: Partial<PubkyAppUser>) {
-    try {
-      if (!this.session) {
-        throw new Error('No active session, cannot update profile');
-      }
+    this.assertAuthenticated();
 
+    try {
       const profilePath = '/pub/pubky.app/profile.json';
 
       // Get existing profile
