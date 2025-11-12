@@ -13,5 +13,6 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1'
   },
+  testPathIgnorePatterns: ['/__tests__/setup\\.ts$'],
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts']
 };
