@@ -219,8 +219,10 @@ class PubkyBot {
         try {
           await this.mcpClient.connect();
         } catch (error) {
-          logger.warn('Failed to connect MCP client, continuing without it:', error);
+          logger.info('MCP client unavailable, continuing without it. Factcheck will use OpenAI web search instead.');
         }
+      } else {
+        logger.info('MCP Brave client disabled. Factcheck will use OpenAI web search.');
       }
 
       // Start orchestration components

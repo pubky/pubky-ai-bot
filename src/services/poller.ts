@@ -38,6 +38,9 @@ export class MentionPoller {
   // Concurrency control
   private readonly MAX_CONCURRENT_MENTIONS = 5;    // Process up to 5 mentions in parallel
 
+  // Age filtering for first pull
+  private readonly MAX_NOTIFICATION_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
   constructor(
     private pubkyService: PubkyService,
     private eventBus: EventBus,
@@ -172,16 +175,47 @@ export class MentionPoller {
           continue;
         }
 
-        // Process new mentions from this page
-        if (duplicates > 0) {
-          logger.info(`Found ${newMentions.length} mention(s) to process from ${notificationCount} notifications (skipped ${duplicates} duplicate(s))`);
-        } else {
-          logger.info(`Found ${newMentions.length} new mention(s) from ${notificationCount} notifications`);
+        // Separate old mentions from recent ones
+        const oldMentions: Mention[] = [];
+        const recentMentions: Mention[] = [];
+
+        for (const mention of newMentions) {
+          if (this.isMentionTooOld(mention)) {
+            oldMentions.push(mention);
+          } else {
+            recentMentions.push(mention);
+          }
         }
 
-        // CRITICAL: If ANY mention fails, this throws and we will not persist offset
-        await this.processInParallel(newMentions, this.MAX_CONCURRENT_MENTIONS);
-        processedAny = true;
+        // Store old mentions without processing
+        if (oldMentions.length > 0) {
+          logger.info(`Skipping ${oldMentions.length} old mention(s) (>30 minutes old)`);
+          for (const oldMention of oldMentions) {
+            try {
+              await this.storeOldMention(oldMention);
+            } catch (error) {
+              logger.error('Failed to store old mention:', error, {
+                mentionId: oldMention.mentionId
+              });
+            }
+          }
+        }
+
+        // Process new mentions from this page
+        if (recentMentions.length > 0) {
+          if (duplicates > 0 || oldMentions.length > 0) {
+            logger.info(`Found ${recentMentions.length} mention(s) to process from ${notificationCount} notifications (skipped ${duplicates} duplicate(s) and ${oldMentions.length} old mention(s))`);
+          } else {
+            logger.info(`Found ${recentMentions.length} new mention(s) from ${notificationCount} notifications`);
+          }
+
+          // CRITICAL: If ANY mention fails, this throws and we will not persist offset
+          await this.processInParallel(recentMentions, this.MAX_CONCURRENT_MENTIONS);
+          processedAny = true;
+        } else if (oldMentions.length > 0) {
+          // All mentions were old, but we still stored them
+          logger.info(`All ${oldMentions.length} mention(s) were too old, stored as skipped`);
+        }
 
         // Advance to next page and continue scanning within this poll
         pageOffset += notificationCount;
@@ -486,6 +520,31 @@ export class MentionPoller {
     });
   }
 
+  /**
+   * Store old mention in database without processing
+   * Used to mark notifications as seen so they won't be processed on restart
+   */
+  private async storeOldMention(mention: Mention): Promise<void> {
+    await db.query(
+      `INSERT INTO mentions (mention_id, post_id, author_id, content, url, received_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'skipped_old')
+       ON CONFLICT (mention_id) DO NOTHING`,
+      [
+        mention.mentionId,
+        mention.postId,
+        mention.authorId,
+        mention.content,
+        mention.url,
+        mention.receivedAt
+      ]
+    );
+
+    logger.debug('Old mention stored in database as skipped', {
+      mentionId: mention.mentionId,
+      age: Date.now() - new Date(mention.receivedAt).getTime()
+    });
+  }
+
   private async updateMentionStatus(
     mentionId: string,
     status: string,
@@ -497,6 +556,17 @@ export class MentionPoller {
        WHERE mention_id = $1`,
       [mentionId, status, error]
     );
+  }
+
+  /**
+   * Check if a mention is too old to process (older than MAX_NOTIFICATION_AGE_MS)
+   * Used to skip old notifications on first pull to avoid processing backlog
+   */
+  private isMentionTooOld(mention: Mention): boolean {
+    const receivedAt = new Date(mention.receivedAt).getTime();
+    const now = Date.now();
+    const age = now - receivedAt;
+    return age > this.MAX_NOTIFICATION_AGE_MS;
   }
 
   /**

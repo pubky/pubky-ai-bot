@@ -51,7 +51,7 @@ export class McpClientService {
         return;
       }
 
-      logger.error('Failed to connect MCP client:', error);
+      logger.warn('Failed to connect MCP client:', error);
       throw error;
     }
   }

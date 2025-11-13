@@ -85,7 +85,7 @@
   },
   "mcp": {
     "brave": {
-      "enabled": true,
+      "enabled": false,
       "transport": "sse",
       "baseUrl": "http://localhost:8921/mcp",
       "connectTimeoutMs": 5000,
