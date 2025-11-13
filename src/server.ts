@@ -15,6 +15,7 @@ import { IdempotencyService } from '@/core/idempotency';
 import { AIService } from '@/services/ai';
 import { SafetyService } from '@/services/safety';
 import { MetricsService } from '@/services/metrics';
+import { RateLimitService } from '@/services/rate-limit';
 import { PubkyService } from '@/services/pubky';
 import { ThreadService } from '@/services/thread';
 import { ReplyService } from '@/services/reply';
@@ -50,6 +51,7 @@ class PubkyBot {
   private aiService: AIService;
   private safetyService: SafetyService;
   private metricsService: MetricsService;
+  private rateLimitService: RateLimitService;
   private pubkyService: PubkyService;
   private threadService: ThreadService;
   private replyService: ReplyService;
@@ -98,6 +100,11 @@ class PubkyBot {
     this.aiService = new AIService();
     this.safetyService = new SafetyService();
     this.metricsService = new MetricsService();
+    this.rateLimitService = new RateLimitService(
+      redis.getClient(),
+      appConfig.rateLimit.maxRequests,
+      appConfig.rateLimit.windowMinutes
+    );
     this.mcpClient = new McpClientService();
 
     // Domain services - PubkyService must be initialized with async factory pattern
@@ -113,7 +120,8 @@ class PubkyBot {
       this.eventBus,
       this.classifierService,
       this.idempotency,
-      this.metricsService
+      this.metricsService,
+      this.rateLimitService
     );
 
     // Workers

@@ -94,6 +94,10 @@ export const ConfigSchema = z.object({
       timeoutMs: z.number().min(1000).max(60000),
       headers: z.record(z.string()).optional()
     })
+  }),
+  rateLimit: z.object({
+    maxRequests: z.number().min(1).max(1000).default(10),
+    windowMinutes: z.number().min(1).max(1440).default(120) // Max 24 hours
   })
 });
 

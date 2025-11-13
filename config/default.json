@@ -93,5 +93,9 @@
       "timeoutMs": 10000,
       "headers": {}
     }
+  },
+  "rateLimit": {
+    "maxRequests": "${RATE_LIMIT_MAX_REQUESTS}",
+    "windowMinutes": "${RATE_LIMIT_WINDOW_MINUTES}"
   }
 }

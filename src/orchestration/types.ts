@@ -4,10 +4,10 @@ import { ThreadContext } from '@/types/thread';
 import { Logger } from 'winston';
 
 export interface RoutingDecision {
-  intent: 'summary' | 'factcheck' | 'unknown';
+  intent: 'summary' | 'factcheck' | 'unknown' | 'rate_limited';
   confidence: number;
   reason?: string;
-  method: 'heuristic' | 'llm';
+  method: 'heuristic' | 'llm' | 'rate_limit';
 }
 
 export interface ActionWorker {

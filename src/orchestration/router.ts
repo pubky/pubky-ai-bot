@@ -3,6 +3,7 @@ import { MentionReceivedV1, ActionRequestedV1 } from '@/core/events';
 import { ClassifierService } from '@/services/classifier';
 import { IdempotencyService } from '@/core/idempotency';
 import { MetricsService } from '@/services/metrics';
+import { RateLimitService } from '@/services/rate-limit';
 import { db } from '@/infrastructure/database/connection';
 import { RoutingDecision } from './types';
 import appConfig from '@/config';
@@ -13,7 +14,8 @@ export class Router {
     private eventBus: EventBus,
     private classifier: ClassifierService,
     private idempotency: IdempotencyService,
-    private metrics: MetricsService
+    private metrics: MetricsService,
+    private rateLimit: RateLimitService
   ) {}
 
   async start(): Promise<void> {
@@ -43,6 +45,34 @@ export class Router {
       const result = await this.idempotency.guard(
         idempotencyKey,
         async () => {
+          // Check rate limit BEFORE processing (prevents costly AI calls)
+          const rateLimitResult = await this.rateLimit.checkRateLimit(
+            data.mentionedBy,
+            data.mentionId
+          );
+
+          if (!rateLimitResult.allowed) {
+            logger.warn('Mention rate limited - ignoring request', {
+              mentionId: data.mentionId,
+              publicKey: data.mentionedBy,
+              currentCount: rateLimitResult.currentCount,
+              limit: rateLimitResult.limit,
+              windowMinutes: rateLimitResult.windowMinutes,
+              retryAfterSeconds: rateLimitResult.retryAfterSeconds
+            });
+
+            this.metrics.incrementActions('routing', 'rate_limited');
+
+            // Return a special result to indicate rate limiting
+            return {
+              intent: 'rate_limited' as const,
+              confidence: 1.0,
+              reason: `Rate limit exceeded: ${rateLimitResult.currentCount}/${rateLimitResult.limit} requests in ${rateLimitResult.windowMinutes} minutes`,
+              method: 'rate_limit' as const
+            };
+          }
+
+          // Existing processing logic
           return this.processMentionRouting(data, runId);
         }
       );
@@ -51,6 +81,15 @@ export class Router {
         logger.debug('Mention routing already processed', {
           mentionId: data.mentionId,
           runId
+        });
+        return;
+      }
+
+      // Log rate limited requests differently
+      if (result.result?.intent === 'rate_limited') {
+        logger.info('Mention processed but rate limited', {
+          mentionId: data.mentionId,
+          reason: result.result.reason
         });
         return;
       }
@@ -209,6 +248,14 @@ export class Router {
       };
 
       await this.classifier.routeMention(testMention);
+
+      // Check if rate limit service is working
+      const rateLimitHealthy = await this.rateLimit.healthCheck();
+      if (!rateLimitHealthy) {
+        logger.warn('Rate limit service health check failed');
+        return false;
+      }
+
       return true;
 
     } catch (error) {
