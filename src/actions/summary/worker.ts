@@ -118,7 +118,7 @@ export class SummaryWorker {
 
       const summaryResult = await this.summaryService.generate(threadContext, {
         maxKeyPoints: 3,
-        includeParticipants: true,
+        includeParticipants: false,
         style: 'brief'
       });
 

@@ -3,15 +3,10 @@ import { ReplyContent } from '@/services/reply';
 
 export class SummaryTemplates {
   static formatReply(result: SummaryResult): ReplyContent {
-    const { summary, keyPoints, metrics, participantNames } = result;
+    const { summary, keyPoints, metrics } = result;
 
-    // Build the summary text with participant names if available
+    // Build the summary text (without participant names)
     let formattedSummary = summary;
-
-    // Add participants section if we have multiple participants
-    if (participantNames && participantNames.length > 1) {
-      formattedSummary += ` Main participants: ${participantNames.join(', ')}`;
-    }
 
     // Determine if we should include key points based on space and quality
     const shouldIncludeKeyPoints =
@@ -82,12 +77,7 @@ export class SummaryTemplates {
       });
     }
 
-    // Use participant names if available, otherwise fall back to participant IDs
-    if (result.participantNames && result.participantNames.length > 1) {
-      detailed += `\nParticipants: ${result.participantNames.join(', ')}`;
-    } else if (result.participants.length > 1) {
-      detailed += `\nParticipants: ${result.participants.join(', ')}`;
-    }
+    // Participant mentions removed as per requirement
 
     if (result.topics.length > 0) {
       detailed += `\nTopics: ${result.topics.join(', ')}`;
