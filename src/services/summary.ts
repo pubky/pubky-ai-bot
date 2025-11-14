@@ -1,5 +1,7 @@
 import { AIService } from './ai';
 import { ThreadContext } from '@/types/thread';
+import { InjectionDetector } from './injection-detector';
+import { SecurePrompts } from './secure-prompts';
 import logger from '@/utils/logger';
 import { truncateText } from '@/utils/text';
 import appConfig from '@/config';
@@ -26,7 +28,11 @@ export interface SummaryResult {
 }
 
 export class SummaryService {
-  constructor(private aiService: AIService) {}
+  private injectionDetector: InjectionDetector;
+
+  constructor(private aiService: AIService) {
+    this.injectionDetector = new InjectionDetector();
+  }
 
   async generate(
     context: ThreadContext,
@@ -77,53 +83,53 @@ export class SummaryService {
   private buildSummaryPrompt(context: ThreadContext, options: SummaryOptions): string {
     const style = options.style || 'brief';
     const maxKeyPoints = options.maxKeyPoints || 3;
+    const MAX_TOKENS = 50000; // 50k token limit
 
-    let prompt = `Please provide a ${style} summary of this conversation thread.
+    // Detect and sanitize root post
+    const rootDetection = this.injectionDetector.detect(context.rootPost.content, {
+      postId: context.rootPost.id,
+      authorId: context.rootPost.authorId,
+      postUri: context.rootPost.uri
+    });
 
-Thread Content:
-Root Post: ${context.rootPost.content}
-`;
+    // Get all non-root posts
+    const threadPosts = context.posts.filter(p => p.id !== context.rootPost.id);
 
-    // Add recent posts (limit to most recent if thread is long)
-    const recentPosts = context.posts
-      .filter(p => p.id !== context.rootPost.id)
-      .slice(-10); // Last 10 posts
+    // Calculate approximate token count (rough estimate: 1 token ≈ 4 chars)
+    let totalTokens = Math.ceil(rootDetection.sanitized.length / 4);
+    const sanitizedPosts: string[] = [];
 
-    if (recentPosts.length > 0) {
-      prompt += '\nRecent Posts:\n';
-      recentPosts.forEach((post, index) => {
-        prompt += `${index + 1}. ${post.content}\n`;
+    // Include posts until we hit the token limit
+    for (const post of threadPosts) {
+      const detection = this.injectionDetector.detect(post.content, {
+        postId: post.id,
+        authorId: post.authorId,
+        postUri: post.uri
       });
+
+      const postTokens = Math.ceil(detection.sanitized.length / 4);
+      if (totalTokens + postTokens > MAX_TOKENS) {
+        logger.info('Thread truncated due to token limit', {
+          totalPosts: threadPosts.length,
+          includedPosts: sanitizedPosts.length,
+          estimatedTokens: totalTokens
+        });
+        break;
+      }
+
+      sanitizedPosts.push(detection.sanitized);
+      totalTokens += postTokens;
     }
 
-    prompt += `
-Instructions:
-- Provide a concise summary (1-2 sentences)
-- Extract ${maxKeyPoints} key points as bullet points
-- Keep total response under 500 characters for brief style, 800 for detailed
-- Focus on main discussion topics and conclusions`;
-
-    if (options.includeParticipants && context.participantProfiles) {
-      // Use resolved usernames if available
-      const participantNames = context.participantProfiles
-        .slice(0, 5)
-        .map(p => p.displayName)
-        .join(', ');
-      prompt += `\n- Note the main participants: ${participantNames}`;
-    } else if (options.includeParticipants) {
-      prompt += `\n- Note the main participants: ${context.participants.slice(0, 5).join(', ')}`;
-    }
-
-    prompt += `
-
-Format your response exactly as:
-Summary: [Your summary here]
-Key Points:
-• [Point 1]
-• [Point 2]
-• [Point 3]`;
-
-    return prompt;
+    // Use secure prompt template
+    return SecurePrompts.buildSummaryPrompt(
+      rootDetection.sanitized,
+      sanitizedPosts,
+      {
+        style,
+        maxKeyPoints
+      }
+    );
   }
 
   private parseSummaryResult(

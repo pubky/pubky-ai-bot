@@ -1,5 +1,7 @@
 import { AIService } from './ai';
 import { ThreadContext } from '@/types/thread';
+import { InjectionDetector } from './injection-detector';
+import { SecurePrompts } from './secure-prompts';
 import logger from '@/utils/logger';
 import appConfig from '@/config';
 import { z } from 'zod';
@@ -94,6 +96,7 @@ export class FactcheckWebSearchService {
   private sourceCredibilityConfig: any;
   private searchCache: Map<string, CachedSearchResult>;
   private readonly CACHE_TTL = 3600000; // 1 hour in milliseconds
+  private injectionDetector: InjectionDetector;
 
   constructor(private aiService: AIService) {
     // Load source credibility configuration
@@ -101,6 +104,9 @@ export class FactcheckWebSearchService {
 
     // Initialize search cache
     this.searchCache = new Map();
+
+    // Initialize injection detector
+    this.injectionDetector = new InjectionDetector();
 
     // Periodically clean up expired cache entries
     setInterval(() => this.cleanupCache(), 600000); // Clean up every 10 minutes
@@ -184,34 +190,11 @@ export class FactcheckWebSearchService {
   }
 
   private async extractClaimsWithAI(text: string): Promise<Claim[]> {
-    const prompt = `Extract ONLY verifiable factual claims from the following text.
+    // Detect and sanitize input
+    const detection = this.injectionDetector.detect(text);
 
-A factual claim is a statement that can be verified as true or false through evidence, data, or reliable sources.
-
-INCLUDE claims that:
-- State specific facts, statistics, or data points
-- Make assertions about events, people, or organizations
-- Describe scientific or medical findings
-- Report on actions, policies, or statements by public figures
-- Make comparisons that can be fact-checked
-
-EXCLUDE:
-- Opinions, beliefs, or subjective statements (e.g., "I think", "I believe")
-- Predictions or future speculations (e.g., "might", "could", "will probably")
-- Value judgments (e.g., "best", "worst", "should")
-- Vague or unverifiable statements
-- Questions or hypotheticals
-- Personal experiences or anecdotes
-
-Text to analyze:
-"${text}"
-
-Return a JSON object with an array of claims. For each claim, provide:
-- text: The exact factual claim (preserve original wording when possible)
-- confidence: Score from 0-1 indicating how clearly this is a verifiable factual claim
-- context: Any important context needed to understand the claim (optional)
-
-Focus on the most significant and checkable claims. Ignore trivial or obvious facts.`;
+    // Use secure prompt template
+    const prompt = SecurePrompts.buildClaimExtractionPrompt(detection.sanitized);
 
     // Use 'factcheck' purpose to get the longer timeout (90s) for reasoning models
     const result = await this.aiService.generateObject<z.infer<typeof ClaimsExtractionSchema>>(
@@ -320,19 +303,14 @@ Focus on the most significant and checkable claims. Ignore trivial or obvious fa
       };
     }
 
-    // Build prompt for web search
-    const prompt = `Search for evidence about this claim and report your findings directly: "${claim.text}"
+    // Detect and sanitize claim text
+    const detection = this.injectionDetector.detect(claim.text);
 
-Use web search to find current, reliable information.
-
-Respond with your findings in a natural, conversational way. Start directly with what you found - for example: "According to recent reports from Reuters and BBC..." or "Multiple credible sources confirm that..."
-
-Include:
-- What the evidence shows (2-3 sentences)
-- How confident you are based on source quality
-- Any conflicting information if relevant
-
-DO NOT include meta-commentary like "I searched for" or "I found X sources". Just state the findings directly as facts from the sources.`;
+    // Build secure prompt for web search
+    const prompt = SecurePrompts.buildFactcheckPrompt(
+      detection.sanitized,
+      claim.context
+    );
 
     // Generate verification with OpenAI web search
     const result = await this.verifyWithWebSearch(claim, prompt);
