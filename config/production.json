@@ -26,5 +26,8 @@
         "Authorization": "${BRAVE_MCP_TOKEN}"
       }
     }
+  },
+  "blacklist": {
+    "publicKeys": "${BLACKLIST_PUBLIC_KEYS}"
   }
 }

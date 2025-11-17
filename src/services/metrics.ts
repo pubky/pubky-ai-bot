@@ -83,7 +83,7 @@ export class MetricsService {
     this.mentionsTotal.inc({ status });
   }
 
-  incrementActions(action: string, status: 'started' | 'completed' | 'failed' | 'rate_limited'): void {
+  incrementActions(action: string, status: 'started' | 'completed' | 'failed' | 'rate_limited' | 'blacklisted'): void {
     this.actionsTotal.inc({ action, status });
   }
 

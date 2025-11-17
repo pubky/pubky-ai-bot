@@ -4,6 +4,7 @@ import { ClassifierService } from '@/services/classifier';
 import { IdempotencyService } from '@/core/idempotency';
 import { MetricsService } from '@/services/metrics';
 import { RateLimitService } from '@/services/rate-limit';
+import { BlacklistService } from '@/services/blacklist';
 import { db } from '@/infrastructure/database/connection';
 import { RoutingDecision } from './types';
 import appConfig from '@/config';
@@ -15,7 +16,8 @@ export class Router {
     private classifier: ClassifierService,
     private idempotency: IdempotencyService,
     private metrics: MetricsService,
-    private rateLimit: RateLimitService
+    private rateLimit: RateLimitService,
+    private blacklist: BlacklistService
   ) {}
 
   async start(): Promise<void> {
@@ -45,6 +47,27 @@ export class Router {
       const result = await this.idempotency.guard(
         idempotencyKey,
         async () => {
+          // Check blacklist FIRST (fail-fast for blocked users)
+          const blacklistResult = await this.blacklist.checkBlacklist(data.mentionedBy);
+
+          if (!blacklistResult.allowed) {
+            logger.warn('Mention from blacklisted user - ignoring request', {
+              mentionId: data.mentionId,
+              publicKey: data.mentionedBy,
+              reason: blacklistResult.reason
+            });
+
+            this.metrics.incrementActions('routing', 'blacklisted');
+
+            // Return a special result to indicate blacklisting
+            return {
+              intent: 'blacklisted' as const,
+              confidence: 1.0,
+              reason: blacklistResult.reason || 'User is blacklisted',
+              method: 'blacklist' as const
+            };
+          }
+
           // Check rate limit BEFORE processing (prevents costly AI calls)
           const rateLimitResult = await this.rateLimit.checkRateLimit(
             data.mentionedBy,
@@ -81,6 +104,15 @@ export class Router {
         logger.debug('Mention routing already processed', {
           mentionId: data.mentionId,
           runId
+        });
+        return;
+      }
+
+      // Log blacklisted requests differently
+      if (result.result?.intent === 'blacklisted') {
+        logger.info('Mention processed but user is blacklisted', {
+          mentionId: data.mentionId,
+          reason: result.result.reason
         });
         return;
       }
@@ -248,6 +280,13 @@ export class Router {
       };
 
       await this.classifier.routeMention(testMention);
+
+      // Check if blacklist service is working
+      const blacklistHealthy = await this.blacklist.healthCheck();
+      if (!blacklistHealthy) {
+        logger.warn('Blacklist service health check failed');
+        return false;
+      }
 
       // Check if rate limit service is working
       const rateLimitHealthy = await this.rateLimit.healthCheck();

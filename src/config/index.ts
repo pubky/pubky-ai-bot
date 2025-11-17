@@ -43,7 +43,8 @@ function resolveEnvVars(obj: any): any {
         'AI_MAX_TOKENS_CLASSIFIER': '500',
         'AI_CLASSIFIER_TEMPERATURE': '0.1',
         'RATE_LIMIT_MAX_REQUESTS': '10',
-        'RATE_LIMIT_WINDOW_MINUTES': '120'
+        'RATE_LIMIT_WINDOW_MINUTES': '120',
+        'BLACKLIST_PUBLIC_KEYS': ''
       };
 
       return fallbacks[varName] || match;

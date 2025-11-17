@@ -150,18 +150,7 @@ export class FactcheckWorker {
       const replyContent = this.formatFactcheckReply(factcheckResult);
       const replyText = this.replyService.compose(replyContent);
 
-      // Safety check
-      const safetyCheck = this.safetyService.performComprehensiveCheck(replyText);
-      if (safetyCheck.blocked) {
-        logger.warn('Factcheck reply blocked by safety check', {
-          mentionId: data.mentionId,
-          reason: safetyCheck.reason
-        });
-
-        throw new Error(`Reply blocked by safety check: ${safetyCheck.reason}`);
-      }
-
-      // Publish reply
+      // Publish reply (safety check handled by ReplyService)
       let replyRef = null;
       if (data.parentUri) {
         replyRef = await this.replyService.publish(

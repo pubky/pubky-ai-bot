@@ -97,5 +97,8 @@
   "rateLimit": {
     "maxRequests": "${RATE_LIMIT_MAX_REQUESTS}",
     "windowMinutes": "${RATE_LIMIT_WINDOW_MINUTES}"
+  },
+  "blacklist": {
+    "publicKeys": "${BLACKLIST_PUBLIC_KEYS}"
   }
 }

@@ -16,6 +16,7 @@ import { AIService } from '@/services/ai';
 import { SafetyService } from '@/services/safety';
 import { MetricsService } from '@/services/metrics';
 import { RateLimitService } from '@/services/rate-limit';
+import { BlacklistService } from '@/services/blacklist';
 import { PubkyService } from '@/services/pubky';
 import { ThreadService } from '@/services/thread';
 import { ReplyService } from '@/services/reply';
@@ -52,6 +53,7 @@ class PubkyBot {
   private safetyService: SafetyService;
   private metricsService: MetricsService;
   private rateLimitService: RateLimitService;
+  private blacklistService: BlacklistService;
   private pubkyService: PubkyService;
   private threadService: ThreadService;
   private replyService: ReplyService;
@@ -105,6 +107,10 @@ class PubkyBot {
       appConfig.rateLimit.maxRequests,
       appConfig.rateLimit.windowMinutes
     );
+    this.blacklistService = new BlacklistService(
+      redis.getClient(),
+      appConfig.blacklist.publicKeys
+    );
     this.mcpClient = new McpClientService();
 
     // Domain services - PubkyService must be initialized with async factory pattern
@@ -121,7 +127,8 @@ class PubkyBot {
       this.classifierService,
       this.idempotency,
       this.metricsService,
-      this.rateLimitService
+      this.rateLimitService,
+      this.blacklistService
     );
 
     // Workers

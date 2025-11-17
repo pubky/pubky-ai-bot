@@ -98,6 +98,21 @@ export const ConfigSchema = z.object({
   rateLimit: z.object({
     maxRequests: z.number().min(1).max(1000).default(10),
     windowMinutes: z.number().min(1).max(1440).default(120) // Max 24 hours
+  }),
+  blacklist: z.object({
+    publicKeys: z.preprocess(
+      (val) => {
+        // Handle empty string or undefined
+        if (!val || val === '') return [];
+        // Handle comma-separated string
+        if (typeof val === 'string') {
+          return val.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        }
+        // Already an array
+        return val;
+      },
+      z.array(z.string())
+    )
   })
 });
 
