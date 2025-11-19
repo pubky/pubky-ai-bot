@@ -164,11 +164,7 @@ export class MentionPoller {
 
         if (newMentions.length === 0) {
           // Page contained only duplicates; advance locally and keep scanning
-          logger.debug('Page contained only duplicates; skipping', {
-            offset: pageOffset,
-            notificationCount,
-            duplicates
-          });
+          // Suppress duplicate logging - user doesn't care about past duplicates
           pageOffset += notificationCount;
           totalAdvanced += notificationCount;
           pagesScanned++;
@@ -203,18 +199,15 @@ export class MentionPoller {
 
         // Process new mentions from this page
         if (recentMentions.length > 0) {
-          if (duplicates > 0 || oldMentions.length > 0) {
-            logger.info(`Found ${recentMentions.length} mention(s) to process from ${notificationCount} notifications (skipped ${duplicates} duplicate(s) and ${oldMentions.length} old mention(s))`);
-          } else {
-            logger.info(`Found ${recentMentions.length} new mention(s) from ${notificationCount} notifications`);
-          }
+          // Only log when we have actual new mentions to process
+          logger.info(`Found ${recentMentions.length} new mention(s) to process`);
 
           // CRITICAL: If ANY mention fails, this throws and we will not persist offset
           await this.processInParallel(recentMentions, this.MAX_CONCURRENT_MENTIONS);
           processedAny = true;
         } else if (oldMentions.length > 0) {
-          // All mentions were old, but we still stored them
-          logger.info(`All ${oldMentions.length} mention(s) were too old, stored as skipped`);
+          // All mentions were old, but we still stored them - suppress this log
+          logger.debug(`All ${oldMentions.length} mention(s) were too old, stored as skipped`);
         }
 
         // Advance to next page and continue scanning within this poll
@@ -230,16 +223,13 @@ export class MentionPoller {
       if (totalAdvanced > 0) {
         await this.persistOffset(pageOffset);
         this.lastProcessedOffset = pageOffset;
-        logger.debug(`Updated offset to ${this.lastProcessedOffset} (advanced by ${totalAdvanced} notifications across ${pagesScanned} page(s))`);
-      } else {
-        logger.debug('No notifications to advance; offset unchanged');
+        // Only log offset updates when we actually process mentions
+        if (processedAny) {
+          logger.debug(`Updated offset to ${this.lastProcessedOffset} (advanced by ${totalAdvanced} notifications)`);
+        }
       }
 
-      if (processedAny) {
-        logger.debug('Processed at least one new mention this cycle');
-      } else {
-        logger.debug('No new mentions found this cycle');
-      }
+      // We already logged when we found new mentions, no need to log again
 
     } catch (error) {
       logger.error('Failed to poll mentions:', error);
@@ -595,12 +585,10 @@ export class MentionPoller {
       const newMentions = mentions.filter(m => !existingByMentionId.has(m.mentionId) && !existingByPostId.has(m.postId));
       const duplicates = mentions.length - newMentions.length;
 
-      if (duplicates > 0) {
-        logger.debug('Filtered already-processed mentions', {
-          total: mentions.length,
-          duplicates,
-          toProcess: newMentions.length
-        });
+      // Suppress duplicate logging - user doesn't care about past duplicates
+      // Only log if there are NEW mentions
+      if (newMentions.length > 0 && duplicates > 0) {
+        logger.debug(`Processing ${newMentions.length} new mention(s) (${duplicates} duplicate(s) filtered)`);
       }
 
       return { newMentions, duplicates };

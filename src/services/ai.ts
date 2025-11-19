@@ -155,9 +155,11 @@ export class AIService {
     }
   ): Promise<{ text: string; usage?: any; toolCalls?: any[]; toolResults?: any[]; provider?: ProviderName }> {
     const maxTokens = appConfig.ai.maxTokens[purpose];
-    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    // Use purpose-specific timeouts
     const timeout = purpose === 'factcheck'
       ? appConfig.limits.factcheckTimeoutMs
+      : purpose === 'classifier'
+      ? appConfig.limits.classifierTimeoutMs
       : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
@@ -246,9 +248,11 @@ export class AIService {
       maxRetries?: number;
     }
   ): Promise<{ text: string; usage?: any; toolCalls?: any[]; toolResults?: any[]; sources?: any[]; provider?: ProviderName }> {
-    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    // Use purpose-specific timeouts
     const timeout = purpose === 'factcheck'
       ? appConfig.limits.factcheckTimeoutMs
+      : purpose === 'classifier'
+      ? appConfig.limits.classifierTimeoutMs
       : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
@@ -355,9 +359,11 @@ export class AIService {
       : purpose === 'factcheck'
         ? 0.3 // Lower temperature for factchecking (more deterministic)
         : undefined;
-    // Use factcheck-specific timeout for factcheck operations (90s for reasoning models)
+    // Use purpose-specific timeouts
     const timeout = purpose === 'factcheck'
       ? appConfig.limits.factcheckTimeoutMs
+      : purpose === 'classifier'
+      ? appConfig.limits.classifierTimeoutMs
       : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
@@ -387,7 +393,12 @@ export class AIService {
             if (error.message?.includes('parse') || error.message?.includes('No object generated')) {
               logger.debug(`Object generation failed for ${providerName}, trying text extraction`);
 
-              // Use generateText instead
+              // Skip fallback for classifier to save time
+              if (purpose === 'classifier') {
+                throw error; // Skip the fallback for classifier
+              }
+
+              // Use generateText instead (only for non-classifier purposes)
               const textResponse = await withTimeout(
                 generateText({
                   model,
@@ -395,7 +406,7 @@ export class AIService {
                   temperature,
                   maxRetries: 1
                 }),
-                timeout
+                Math.min(timeout, 5000) // Use shorter timeout (5s) for fallback
               );
 
               // Extract JSON from the text response

@@ -74,7 +74,7 @@ export class EventBus {
           groupName,
           consumerName,
           count: 5,
-          block: 5000
+          block: 100  // Reduced from 5000ms to 100ms for faster processing
         });
 
         for (const message of messages) {
@@ -111,7 +111,7 @@ export class EventBus {
       } catch (error) {
         logger.error(`Error in consume loop for ${streamKey}:`, error);
         // Brief delay before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 100));  // Reduced from 1000ms to 100ms
       }
     }
   }

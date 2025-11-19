@@ -28,6 +28,16 @@ export interface PubkyAppUser {
   status?: string;
 }
 
+// Nexus API response types
+export interface NexusPostDetails {
+  content: string;
+  id: string;
+  indexed_at: number; // Unix timestamp in milliseconds
+  author: string;
+  kind: string;
+  uri: string;
+}
+
 export interface PubkyMention {
   id: string;
   postId: string;
@@ -377,14 +387,14 @@ export class PubkyService {
             const authorShort = (authorPubkey || this.extractPubkey(postUri)).substring(0, 8);
             const stableId = `${postId}_${authorShort}`;
             const idSource = 'post_uri.composite';
-
+/*
             logger.debug('Generated stable mention ID', {
               mentionId: stableId,
               source: idSource,
               postUri,
               postId: postUri.split('/').pop() || ''
             });
-
+ */
             // Extract timestamp for receivedAt field
             // Priority: indexed_at > timestamp > Date.now() (as last resort only)
             let timestamp: number;
@@ -427,6 +437,68 @@ export class PubkyService {
   }
 
   /**
+   * Fetch post details from Nexus API to get indexed_at timestamp
+   * @param authorId - Author's public key
+   * @param postId - Post ID (without URI prefix)
+   * @returns NexusPostDetails with indexed_at timestamp, or null if not found
+   */
+  private async getPostDetailsFromNexus(authorId: string, postId: string): Promise<NexusPostDetails | null> {
+    try {
+      const nexusBaseUrl = appConfig.pubky.nexusApiUrl || 'https://testnet.pubky.org';
+      const detailsUrl = new URL(
+        `/v0/post/${encodeURIComponent(authorId)}/${encodeURIComponent(postId)}/details`,
+        nexusBaseUrl
+      );
+/*
+      logger.debug('Fetching post details from Nexus API', {
+        url: detailsUrl.toString(),
+        authorId: authorId.substring(0, 8) + '...',
+        postId
+      });
+*/
+      // Prepare headers with HTTP Basic Auth if credentials are available
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+
+      if (appConfig.pubky.authUsername && appConfig.pubky.authPassword) {
+        const auth = Buffer.from(
+          `${appConfig.pubky.authUsername}:${appConfig.pubky.authPassword}`
+        ).toString('base64');
+        headers['Authorization'] = `Basic ${auth}`;
+      }
+
+      const response = await fetch(detailsUrl.toString(), { headers });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          logger.debug('Post not found in Nexus', { authorId, postId });
+          return null;
+        }
+        throw new Error(`Nexus API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json() as NexusPostDetails;
+
+      /**
+      logger.debug('Fetched post details from Nexus', {
+        postId,
+        indexed_at: data.indexed_at,
+        indexed_at_iso: new Date(data.indexed_at).toISOString()
+      });
+       */
+      return data;
+    } catch (error) {
+      logger.warn('Failed to fetch post details from Nexus, will use fallback timestamp', {
+        authorId,
+        postId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
    * Fetch a post by URI
    */
   async getPost(postUri: string): Promise<Post | null> {
@@ -440,12 +512,24 @@ export class PubkyService {
             return null;
           }
 
+          // Extract author and post ID for Nexus lookup
+          const postId = postUri.split('/').pop() || postUri;
+          const authorId = this.extractPubkey(postUri);
+
+          // Fetch post details from Nexus to get indexed_at timestamp
+          const nexusDetails = await this.getPostDetailsFromNexus(authorId, postId);
+
+          // Use indexed_at from Nexus if available, otherwise fall back to post ID (ULID-based)
+          const createdAt = nexusDetails
+            ? new Date(nexusDetails.indexed_at).toISOString()
+            : postId; // Fallback: ULIDs are lexicographically sortable
+
           const post: Post = {
-            id: postUri.split('/').pop() || postUri,
+            id: postId,
             uri: postUri,
             content: postData.content || '',
-            authorId: this.extractPubkey(postUri),
-            createdAt: new Date().toISOString(),
+            authorId,
+            createdAt,
             parentUri: postData.parent
           };
 
@@ -507,12 +591,24 @@ export class PubkyService {
         return null;
       }
 
+      // Extract author and post ID for Nexus lookup
+      const extractedPostId = postUri.split('/').pop() || postId;
+      const authorId = postUri.split('/')[2];
+
+      // Fetch post details from Nexus to get indexed_at timestamp
+      const nexusDetails = await this.getPostDetailsFromNexus(authorId, extractedPostId);
+
+      // Use indexed_at from Nexus if available, otherwise fall back to post ID (ULID-based)
+      const createdAt = nexusDetails
+        ? new Date(nexusDetails.indexed_at).toISOString()
+        : extractedPostId; // Fallback: ULIDs are lexicographically sortable
+
       const post: Post = {
-        id: postUri.split('/').pop() || postId,
+        id: extractedPostId,
         uri: postUri,
         content: postData.content || '',
-        authorId: postUri.split('/')[2], // Extract author from URI
-        createdAt: new Date().toISOString(), // Note: pubky-app-specs doesn't include created_at in posts
+        authorId: authorId,
+        createdAt: createdAt,
         parentUri: postData.parent
       };
 

@@ -59,7 +59,7 @@ export class RedisStreams {
         options.groupName,
         options.consumerName,
         { key: streamKey, id: '>' },
-        { COUNT: options.count || 10, BLOCK: options.block || 1000 }
+        { COUNT: options.count || 10, BLOCK: options.block !== undefined ? options.block : 100 }  // Reduced default from 1000ms to 100ms
       );
 
       if (!messages || messages.length === 0) {

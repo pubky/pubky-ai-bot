@@ -158,9 +158,9 @@ Return ONLY valid JSON with this exact structure:
     // Try heuristics first (fast path)
     const heuristicMatch = this.heuristicIntent(mention);
 
-    // Conservative approach: Only use heuristics if confidence is high (≥0.75)
-    // If uncertain, always defer to LLM for more accurate classification
-    if (heuristicMatch && heuristicMatch.confidence >= 0.75) {
+    // Use heuristics if confidence is moderate or higher (≥0.6)
+    // This avoids LLM calls for obvious cases while maintaining accuracy
+    if (heuristicMatch && heuristicMatch.confidence >= 0.6) {
       logger.debug('Using heuristic classification (high confidence)', {
         mentionId: mention.mentionId,
         intent: heuristicMatch.intent,
