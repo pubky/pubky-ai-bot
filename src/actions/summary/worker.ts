@@ -9,6 +9,7 @@ import { MetricsService } from '@/services/metrics';
 import { SummaryTemplates } from './templates';
 import { db } from '@/infrastructure/database/connection';
 import { generateId, generateRunId } from '@/utils/ids';
+import { budgetService } from '@/services/budget';
 import { getCurrentTimestamp } from '@/utils/time';
 import logger from '@/utils/logger';
 
@@ -122,6 +123,30 @@ export class SummaryWorker {
         style: 'brief'
       });
 
+      // Record token usage attributed to the author pubkey
+      try {
+        const authorId = await budgetService.getAuthorByMentionId(data.mentionId);
+        const aiTokens = summaryResult.metrics.aiTokensUsed;
+        if (authorId && typeof aiTokens === 'number') {
+          await budgetService.recordUsage({
+            mentionId: data.mentionId,
+            publicKey: authorId,
+            phase: 'summary',
+            provider: summaryResult.aiMeta?.provider,
+            model: summaryResult.aiMeta?.model,
+            inputTokens: summaryResult.aiMeta?.usage?.inputTokens ?? null,
+            outputTokens: summaryResult.aiMeta?.usage?.outputTokens ?? null,
+            totalTokens: aiTokens,
+            meta: { source: 'summaryService' }
+          });
+        }
+      } catch (e) {
+        logger.debug('Non-fatal: failed to record summary token usage', {
+          mentionId: data.mentionId,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+
       // Format reply
       const replyContent = SummaryTemplates.formatReply(summaryResult);
       const replyText = this.replyService.compose(replyContent);
@@ -150,7 +175,7 @@ export class SummaryWorker {
       // Complete action execution
       await this.completeActionExecution(executionId, {
         durationMs: Date.now() - startTime,
-        tokensUsed: summaryResult.metrics.summaryTokens
+        tokensUsed: summaryResult.metrics.aiTokensUsed ?? summaryResult.metrics.summaryTokens
       });
 
       // Emit completion event

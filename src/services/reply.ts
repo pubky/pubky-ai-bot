@@ -58,19 +58,14 @@ export class ReplyService {
     let reply = content.verdict || '';
 
     if (content.sources && content.sources.length > 0) {
-      reply += '\n\nSources:';
+      reply += '\n\nSources:\n';
 
-      content.sources.slice(0, 3).forEach(source => {
-        // Include credibility explanation if available (Grok-style)
-        if (source.description) {
-          reply += `\n\n• ${source.title}\n  ${source.url}\n  ${source.description}`;
-        } else {
-          reply += `\n• ${source.title} — ${source.url}`;
-        }
+      content.sources.slice(0, 3).forEach((source) => {
+        reply += `${source.url}\n`;
       });
     }
 
-    return truncateText(reply, 1200); // Increased from 800 to accommodate richer content
+    return truncateText(reply, 1200);
   }
 
   async publish(

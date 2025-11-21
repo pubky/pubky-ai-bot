@@ -24,6 +24,16 @@ export interface SummaryResult {
     summaryTokens: number;
     compressionRatio: number;
     confidence: 'high' | 'medium' | 'low';
+    aiTokensUsed?: number; // actual provider-reported tokens if available
+  };
+  aiMeta?: {
+    provider?: string;
+    model?: string;
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    };
   };
 }
 
@@ -62,6 +72,23 @@ export class SummaryService {
 
       // Parse and structure the result
       const summaryResult = this.parseSummaryResult(result.text, context, options);
+
+      // Attach provider usage metadata when available
+      try {
+        const total = result.usage?.totalTokens;
+        if (typeof total === 'number') {
+          (summaryResult.metrics as any).aiTokensUsed = total;
+        }
+        summaryResult.aiMeta = {
+          provider: result.provider,
+          model: appConfig.ai.models.summary,
+          usage: result.usage ? {
+            inputTokens: (result.usage as any).inputTokens,
+            outputTokens: (result.usage as any).outputTokens,
+            totalTokens: (result.usage as any).totalTokens
+          } : undefined
+        };
+      } catch {}
 
       logger.debug('Summary generated successfully', {
         summaryLength: summaryResult.summary.length,

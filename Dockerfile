@@ -18,6 +18,12 @@ RUN npm ci
 COPY . .
 CMD ["npm", "run", "dev"]
 
+# Test stage
+FROM base AS test
+RUN npm ci
+COPY . .
+CMD ["npm", "test"]
+
 # Build stage
 FROM base AS build
 RUN npm ci

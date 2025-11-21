@@ -72,7 +72,7 @@ export const ConfigSchema = z.object({
   limits: z.object({
     maxConcurrentActions: z.number().min(1).max(20),
     defaultTimeoutMs: z.number().min(1000).max(120000),
-    classifierTimeoutMs: z.number().min(1000).max(30000).optional().default(12000), // 12s for classifier
+    classifierTimeoutMs: z.number().min(1000).max(60000).optional().default(12000), // 12s default, up to 60s for reasoning models
     factcheckTimeoutMs: z.number().min(1000).max(300000).optional().default(180000), // 90s for reasoning models
     thread: z.object({
       maxDepth: z.number().min(10).max(500).default(100),
@@ -86,15 +86,26 @@ export const ConfigSchema = z.object({
     blockOnMatch: z.boolean()
   }),
   mcp: z.object({
-    brave: z.object({
-      enabled: z.boolean(),
-      transport: z.enum(['http', 'sse']).default('sse'),
-      baseUrl: z.string().min(1), // MCP server base URL
-      connectTimeoutMs: z.number().min(1000).max(30000),
-      maxResults: z.number().min(1).max(20),
-      timeoutMs: z.number().min(1000).max(60000),
-      headers: z.record(z.string()).optional()
-    })
+    brave: z.discriminatedUnion('enabled', [
+      z.object({
+        enabled: z.literal(false),
+        transport: z.enum(['http', 'sse']).optional(),
+        baseUrl: z.string().optional(),
+        connectTimeoutMs: z.number().optional(),
+        maxResults: z.number().optional(),
+        timeoutMs: z.number().optional(),
+        headers: z.record(z.string()).optional()
+      }),
+      z.object({
+        enabled: z.literal(true),
+        transport: z.enum(['http', 'sse']).default('sse'),
+        baseUrl: z.string().min(1),
+        connectTimeoutMs: z.number().min(1000).max(30000),
+        maxResults: z.number().min(1).max(20),
+        timeoutMs: z.number().min(1000).max(60000),
+        headers: z.record(z.string()).optional()
+      })
+    ])
   }),
   rateLimit: z.object({
     maxRequests: z.number().min(1).max(1000).default(10),
@@ -114,7 +125,11 @@ export const ConfigSchema = z.object({
       },
       z.array(z.string())
     )
-  })
+  }),
+  budget: z.object({
+    enabled: z.boolean().default(false),
+    defaultDailyTokens: z.number().min(1000).max(5000000).default(200000)
+  }).default({ enabled: false, defaultDailyTokens: 200000 })
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

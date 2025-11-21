@@ -202,16 +202,18 @@ function validateConfig(): Config {
     // Note: Do not cross-validate staging/testnet/mainnet here.
     // Staging can legitimately point to mainnet infrastructure.
 
-    // Normalize MCP Brave base URL to include '/mcp' path if missing
-    try {
-      const u = new URL(validated.mcp.brave.baseUrl);
-      if (!u.pathname || u.pathname === '/' || u.pathname.trim() === '') {
-        u.pathname = '/mcp';
-        (validated as any).mcp.brave.baseUrl = u.toString();
-        console.warn(`Normalized BRAVE_MCP_BASE_URL to ${u.toString()} (appended /mcp)`);
+    // Normalize MCP Brave base URL to include '/mcp' path if missing (only when enabled)
+    if (validated.mcp.brave.enabled && validated.mcp.brave.baseUrl) {
+      try {
+        const u = new URL(validated.mcp.brave.baseUrl);
+        if (!u.pathname || u.pathname === '/' || u.pathname.trim() === '') {
+          u.pathname = '/mcp';
+          (validated as any).mcp.brave.baseUrl = u.toString();
+          console.warn(`Normalized BRAVE_MCP_BASE_URL to ${u.toString()} (appended /mcp)`);
+        }
+      } catch {
+        // ignore URL parse issues here; they will be caught elsewhere if invalid
       }
-    } catch {
-      // ignore URL parse issues here; they will be caught elsewhere if invalid
     }
 
     // Don't use logger here to avoid circular dependency
@@ -220,10 +222,16 @@ function validateConfig(): Config {
     }
     return validated;
   } catch (error) {
+    // In test mode, throw errors instead of exiting to allow test mocking
+    const isTestMode = process.env.NODE_ENV === 'test';
+
     // Handle configuration errors specially - they're not code bugs
     if (error instanceof ConfigurationError) {
       // Print clean error message to console (no logger, no stack trace)
       console.error(error.message);
+      if (isTestMode) {
+        throw error; // Let tests handle the error
+      }
       process.exit(1);
     }
 
@@ -240,6 +248,9 @@ function validateConfig(): Config {
       console.error('\nPlease check your .env file and config/default.json\n');
     }
 
+    if (isTestMode) {
+      throw error; // Let tests handle the error
+    }
     process.exit(1);
   }
 }
