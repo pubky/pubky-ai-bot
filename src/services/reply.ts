@@ -2,7 +2,7 @@ import { PubkyService, PublishReplyResult } from './pubky';
 import { SafetyService } from './safety';
 import { db } from '@/infrastructure/database/connection';
 import logger from '@/utils/logger';
-import { truncateText } from '@/utils/text';
+import { truncateText, cleanMarkdownUrls } from '@/utils/text';
 
 export interface ReplyContent {
   summary?: string;
@@ -57,11 +57,16 @@ export class ReplyService {
   private composeFactcheckReply(content: ReplyContent): string {
     let reply = content.verdict || '';
 
+    // Clean any markdown-formatted URLs from the verdict text
+    reply = cleanMarkdownUrls(reply);
+
     if (content.sources && content.sources.length > 0) {
       reply += '\n\nSources:\n';
 
       content.sources.slice(0, 3).forEach((source) => {
-        reply += `${source.url}\n`;
+        // Ensure source URLs are clean (no markdown formatting)
+        const cleanUrl = cleanMarkdownUrls(source.url);
+        reply += `${cleanUrl}\n`;
       });
     }
 

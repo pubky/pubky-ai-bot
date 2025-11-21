@@ -15,3 +15,15 @@ export function extractKeywords(text: string): string[] {
 export function sanitizeForWordlist(text: string): string {
   return text.toLowerCase().trim();
 }
+
+/**
+ * Clean markdown-formatted URLs from text
+ * Converts [text](url) or [domain.com](https://domain.com) to just the URL
+ * @param text - Text that may contain markdown-formatted URLs
+ * @returns Text with markdown URLs converted to plain URLs
+ */
+export function cleanMarkdownUrls(text: string): string {
+  // Pattern matches markdown links: [text](url)
+  // Captures the URL part and replaces the entire markdown link with just the URL
+  return text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$2');
+}
