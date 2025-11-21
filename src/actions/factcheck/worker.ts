@@ -7,6 +7,7 @@ import { ReplyService, ReplyContent } from '@/services/reply';
 import { SafetyService } from '@/services/safety';
 import { MetricsService } from '@/services/metrics';
 import { db } from '@/infrastructure/database/connection';
+import { budgetService } from '@/services/budget';
 import { generateRunId } from '@/utils/ids';
 import logger from '@/utils/logger';
 
@@ -103,7 +104,8 @@ export class FactcheckWorker {
         postCount: threadContext.posts.length
       });
 
-      const claims = await this.factcheckService.extractClaims(threadContext);
+      const extraction = await this.factcheckService.extractClaimsWithUsage(threadContext);
+      const claims = extraction.claims;
 
       if (claims.length === 0) {
         logger.debug('No verifiable claims found', {
@@ -145,6 +147,47 @@ export class FactcheckWorker {
       });
 
       const factcheckResult = await this.factcheckService.verify(claims);
+
+      // Record token usage (extraction + verification)
+      try {
+        const authorId = await budgetService.getAuthorByMentionId(data.mentionId);
+        if (authorId) {
+          const extractTokens = (extraction.usage as any)?.totalTokens || 0;
+          const verifyTokens = (factcheckResult.metrics as any)?.aiTokensUsedVerify || 0;
+
+          if (extractTokens > 0) {
+            await budgetService.recordUsage({
+              mentionId: data.mentionId,
+              publicKey: authorId,
+              phase: 'factcheck_extract',
+              provider: extraction.provider,
+              model: extraction.model,
+              totalTokens: extractTokens,
+              inputTokens: (extraction.usage as any)?.inputTokens ?? null,
+              outputTokens: (extraction.usage as any)?.outputTokens ?? null,
+              meta: { source: 'factcheckService.extractClaims' }
+            });
+          }
+
+          if (verifyTokens > 0) {
+            await budgetService.recordUsage({
+              mentionId: data.mentionId,
+              publicKey: authorId,
+              phase: 'factcheck_verify',
+              // provider/model come from OpenAI web search path; not surfaced explicitly here
+              provider: 'openai',
+              model: 'responses:gpt-4o-mini',
+              totalTokens: verifyTokens,
+              meta: { source: 'factcheckService.verifyWithWebSearch' }
+            });
+          }
+        }
+      } catch (e) {
+        logger.debug('Non-fatal: failed to record factcheck token usage', {
+          mentionId: data.mentionId,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
 
       // Format reply
       const replyContent = this.formatFactcheckReply(factcheckResult);
@@ -217,7 +260,7 @@ export class FactcheckWorker {
       throw new Error('Invalid factcheck result structure - cannot format reply');
     }
 
-    // Build Grok-style narrative response
+    // Build narrative response
     let narrativeText = '';
 
     // Use the narrative summary from overallAssessment
@@ -233,15 +276,6 @@ export class FactcheckWorker {
       narrativeText = "I looked into this claim but couldn't find enough reliable information to verify it.";
     }
 
-    // Add alternative perspectives if present
-    const allPerspectives = verifiedClaims
-      .filter(vc => vc.alternativePerspectives && vc.alternativePerspectives.length > 0)
-      .flatMap(vc => vc.alternativePerspectives || []);
-
-    if (allPerspectives.length > 0) {
-      narrativeText += `\n\nAlternative perspective: ${allPerspectives[0]}`;
-    }
-
     // Include top sources with credibility explanations
     const topSources = sources.slice(0, 3).map(source => ({
       title: source.title,
@@ -254,9 +288,7 @@ export class FactcheckWorker {
 
     const replyContent: ReplyContent = {
       verdict: narrativeText,
-      sources: topSources,
-      confidence: overallAssessment.confidence > 0.7 ? 'high' :
-                  overallAssessment.confidence > 0.4 ? 'medium' : 'low'
+      sources: topSources
     };
 
     return replyContent;

@@ -158,8 +158,6 @@ export class AIService {
     // Use purpose-specific timeouts
     const timeout = purpose === 'factcheck'
       ? appConfig.limits.factcheckTimeoutMs
-      : purpose === 'classifier'
-      ? appConfig.limits.classifierTimeoutMs
       : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 
@@ -251,8 +249,6 @@ export class AIService {
     // Use purpose-specific timeouts
     const timeout = purpose === 'factcheck'
       ? appConfig.limits.factcheckTimeoutMs
-      : purpose === 'classifier'
-      ? appConfig.limits.classifierTimeoutMs
       : appConfig.limits.defaultTimeoutMs;
     const startTime = Date.now();
 

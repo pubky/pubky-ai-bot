@@ -73,13 +73,7 @@ const ClaimsExtractionSchema = z.object({
 // Zod schema for narrative verification output
 const NarrativeVerificationSchema = z.object({
   narrativeSummary: z.string()
-    .describe('Conversational 2-4 sentence explanation of findings, written like explaining to a friend, including nuances and source quality'),
-  confidence: z.enum(['high', 'medium', 'low'])
-    .describe('Confidence level with context'),
-  confidenceReason: z.string()
-    .describe('Brief explanation of confidence level'),
-  alternativePerspectives: z.array(z.string()).optional()
-    .describe('Other legitimate viewpoints or interpretations of this claim, if applicable')
+    .describe('2-4 sentence explanation of findings based on evidence from reliable sources')
 });
 
 interface CachedSearchResult {
@@ -169,17 +163,44 @@ export class FactcheckWebSearchService {
   }
 
   async extractClaims(context: ThreadContext): Promise<Claim[]> {
-    // Focus on the most recent post or root post for claim extraction
-    const targetPost = context.posts.length > 1
-      ? context.posts[context.posts.length - 1]
-      : context.rootPost;
+    // Strategy:
+    // - If the mention post has a parent: fact-check the entire thread (parent + ancestors)
+    // - If the mention post has no parent: fact-check just that post's content (excluding bot mention)
 
-    logger.debug('Extracting claims from post', {
-      postId: targetPost.id,
-      contentLength: targetPost.content.length
-    });
+    const mentionPost = context.posts[context.posts.length - 1]; // Most recent post is the mention
 
-    const claims = await this.extractClaimsWithAI(targetPost.content);
+    let contentToAnalyze: string;
+
+    if (mentionPost.parentUri) {
+      // Mention is a reply - analyze the entire thread
+      // Combine all posts in chronological order for context
+      const threadContent = context.posts
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(post => post.content)
+        .join('\n\n');
+
+      contentToAnalyze = threadContent;
+
+      logger.debug('Extracting claims from thread (mention has parent)', {
+        postCount: context.posts.length,
+        contentLength: contentToAnalyze.length
+      });
+    } else {
+      // Mention is a top-level post - analyze just the content, removing bot mention
+      // The mention contains the bot's public key (pk:xxxxx format)
+      contentToAnalyze = mentionPost.content
+        .replace(/pk:[a-z0-9]+/gi, '')  // Remove bot's public key
+        .replace(/@[a-z0-9-]+/gi, '')   // Remove any @mentions
+        .trim();
+
+      logger.debug('Extracting claims from direct mention (no parent)', {
+        originalLength: mentionPost.content.length,
+        cleanedLength: contentToAnalyze.length
+      });
+    }
+
+    const extraction = await this.extractClaimsWithAI(contentToAnalyze);
+    const claims = extraction.claims;
 
     logger.debug('Claims extracted', {
       claimCount: claims.length,
@@ -189,7 +210,7 @@ export class FactcheckWebSearchService {
     return claims;
   }
 
-  private async extractClaimsWithAI(text: string): Promise<Claim[]> {
+  private async extractClaimsWithAI(text: string): Promise<{ claims: Claim[]; usage?: any; provider?: string; model?: string; }> {
     // Detect and sanitize input
     const detection = this.injectionDetector.detect(text);
 
@@ -203,11 +224,58 @@ export class FactcheckWebSearchService {
       'factcheck'
     );
 
-    return result.object.claims.map(claim => ({
+    const claims = result.object.claims.map(claim => ({
       text: claim.text,
       confidence: claim.confidence,
       context: claim.context
     }));
+
+    return {
+      claims,
+      usage: result.usage,
+      provider: result.provider,
+      model: appConfig.ai.models.factcheck
+    };
+  }
+
+  async extractClaimsWithUsage(context: ThreadContext): Promise<{ claims: Claim[]; usage?: any; provider?: string; model?: string; }> {
+    // Strategy:
+    // - If the mention post has a parent: fact-check the entire thread (parent + ancestors)
+    // - If the mention post has no parent: fact-check just that post's content (excluding bot mention)
+
+    const mentionPost = context.posts[context.posts.length - 1]; // Most recent post is the mention
+
+    let contentToAnalyze: string;
+
+    if (mentionPost.parentUri) {
+      // Mention is a reply - analyze the entire thread
+      // Combine all posts in chronological order for context
+      const threadContent = context.posts
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(post => post.content)
+        .join('\n\n');
+
+      contentToAnalyze = threadContent;
+
+      logger.debug('Extracting claims with usage from thread (mention has parent)', {
+        postCount: context.posts.length,
+        contentLength: contentToAnalyze.length
+      });
+    } else {
+      // Mention is a top-level post - analyze just the content, removing bot mention
+      // The mention contains the bot's public key (pk:xxxxx format)
+      contentToAnalyze = mentionPost.content
+        .replace(/pk:[a-z0-9]+/gi, '')  // Remove bot's public key
+        .replace(/@[a-z0-9-]+/gi, '')   // Remove any @mentions
+        .trim();
+
+      logger.debug('Extracting claims with usage from direct mention (no parent)', {
+        originalLength: mentionPost.content.length,
+        cleanedLength: contentToAnalyze.length
+      });
+    }
+
+    return this.extractClaimsWithAI(contentToAnalyze);
   }
 
   async verify(claims: Claim[]): Promise<FactcheckResult> {
@@ -215,6 +283,7 @@ export class FactcheckWebSearchService {
     let searchQueries = 0;
     const allEvidence: Evidence[] = [];
     const verifiedClaims: VerifiedClaim[] = [];
+    let verifyTokensUsed = 0;
 
     try {
       // Check if OpenAI is the primary provider
@@ -234,6 +303,7 @@ export class FactcheckWebSearchService {
           verifiedClaims.push(verificationResult.verifiedClaim);
           allEvidence.push(...verificationResult.evidence);
           searchQueries += verificationResult.searchQueries;
+          verifyTokensUsed += (verificationResult.tokensUsed || 0);
 
         } catch (error) {
           logger.warn('Failed to verify claim, marking as unverifiable:', error);
@@ -259,7 +329,8 @@ export class FactcheckWebSearchService {
           claimsProcessed: claims.length,
           sourcesFound: allEvidence.length,
           searchQueries,
-          processingTimeMs: Date.now() - startTime
+          processingTimeMs: Date.now() - startTime,
+          aiTokensUsedVerify: verifyTokensUsed
         }
       };
 
@@ -283,6 +354,7 @@ export class FactcheckWebSearchService {
     verifiedClaim: VerifiedClaim;
     evidence: Evidence[];
     searchQueries: number;
+    tokensUsed?: number;
   }> {
     // Check cache first
     const cacheKey = this.getCacheKey(claim.text);
@@ -366,7 +438,8 @@ export class FactcheckWebSearchService {
     return {
       verifiedClaim: verification,
       evidence,
-      searchQueries: searchCount
+      searchQueries: searchCount,
+      tokensUsed: (result.usage as any)?.totalTokens || 0
     };
   }
 
@@ -569,37 +642,15 @@ export class FactcheckWebSearchService {
       });
     }
 
-    // Extract confidence from natural language
+    // Use default confidence based on evidence quality
     let confidenceScore = 0.5;
-    const perspectives: string[] = [];
-
-    const lowerResponse = aiResponse.toLowerCase();
-    if (lowerResponse.includes('strongly confirm') || lowerResponse.includes('definitively') ||
-        lowerResponse.includes('clearly shows') || lowerResponse.includes('conclusive')) {
-      confidenceScore = 0.8;
-    } else if (lowerResponse.includes('appears to') || lowerResponse.includes('suggests') ||
-               lowerResponse.includes('likely') || lowerResponse.includes('seems')) {
-      confidenceScore = 0.5;
-    } else if (lowerResponse.includes('limited evidence') || lowerResponse.includes('unclear') ||
-               lowerResponse.includes('disputed') || lowerResponse.includes('conflicting')) {
-      confidenceScore = 0.3;
-    }
-
-    // Look for alternative viewpoints
-    if (lowerResponse.includes('however') || lowerResponse.includes('on the other hand') ||
-        lowerResponse.includes('alternatively') || lowerResponse.includes('critics argue')) {
-      const contrastMatch = aiResponse.match(/(?:however|on the other hand|alternatively|critics argue)[\s,]+(.+?)(?:\.|$)/i);
-      if (contrastMatch) {
-        perspectives.push(contrastMatch[1].trim());
-      }
-    }
 
     // Adjust based on evidence quality
     if (evidence.length >= 3) {
       const avgReliability = evidence.reduce((sum, e) => sum + e.reliability, 0) / evidence.length;
-      confidenceScore = (confidenceScore * 0.6) + (avgReliability * 0.4);
+      confidenceScore = avgReliability;
     } else if (evidence.length === 0) {
-      confidenceScore = Math.min(confidenceScore, 0.3);
+      confidenceScore = 0.3;
     }
 
     return {
@@ -607,8 +658,7 @@ export class FactcheckWebSearchService {
       verdict: narrative,
       confidence: Math.min(Math.max(confidenceScore, 0.1), 1.0),
       evidence: evidence.slice(0, 3),
-      reasoning: narrative,
-      alternativePerspectives: perspectives.length > 0 ? perspectives : undefined
+      reasoning: narrative
     };
   }
 
@@ -731,10 +781,7 @@ export class FactcheckWebSearchService {
       verdict: narrative,
       confidence,
       evidence: evidence.slice(0, 3),
-      reasoning,
-      alternativePerspectives: evidence.length > 1
-        ? [`Multiple sources were found with varying perspectives from: ${evidence.map(e => e.perspective || 'unknown').filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(', ')}`]
-        : undefined
+      reasoning
     };
   }
 }

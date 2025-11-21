@@ -1,6 +1,6 @@
 {
   "server": {
-    "port": 0
+    "port": 3001
   },
   "postgresql": {
     "url": "postgres://test:test@localhost:5432/pubkybot_test"

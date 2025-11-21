@@ -1,6 +1,7 @@
 import { AIService } from './ai';
 import { McpClientService } from './mcp/client';
 import { ThreadContext } from '@/types/thread';
+import { SecurePrompts } from './secure-prompts';
 // Note: stepCountIs may need to be imported differently based on AI SDK version
 import logger from '@/utils/logger';
 import appConfig from '@/config';
@@ -151,16 +152,10 @@ const ClaimsExtractionSchema = z.object({
     .describe('List of verifiable factual claims found in the text')
 });
 
-// Zod schema for Grok-style narrative verification output
+// Zod schema for narrative verification output
 const NarrativeVerificationSchema = z.object({
   narrativeSummary: z.string()
-    .describe('Conversational 2-4 sentence explanation of findings, written like explaining to a friend, including nuances and source quality'),
-  confidence: z.enum(['high', 'medium', 'low'])
-    .describe('Confidence level with context'),
-  confidenceReason: z.string()
-    .describe('Brief explanation of confidence level'),
-  alternativePerspectives: z.array(z.string()).optional()
-    .describe('Other legitimate viewpoints or interpretations of this claim, if applicable')
+    .describe('2-4 sentence explanation of findings based on evidence from reliable sources')
 });
 
 interface CachedSearchResult {
@@ -245,17 +240,43 @@ export class FactcheckService {
   }
 
   async extractClaims(context: ThreadContext): Promise<Claim[]> {
-    // Focus on the most recent post or root post for claim extraction
-    const targetPost = context.posts.length > 1
-      ? context.posts[context.posts.length - 1]
-      : context.rootPost;
+    // Strategy:
+    // - If the mention post has a parent: fact-check the entire thread (parent + ancestors)
+    // - If the mention post has no parent: fact-check just that post's content (excluding bot mention)
 
-    logger.debug('Extracting claims from post', {
-      postId: targetPost.id,
-      contentLength: targetPost.content.length
-    });
+    const mentionPost = context.posts[context.posts.length - 1]; // Most recent post is the mention
 
-    const claims = await this.extractClaimsWithAI(targetPost.content);
+    let contentToAnalyze: string;
+
+    if (mentionPost.parentUri) {
+      // Mention is a reply - analyze the entire thread
+      // Combine all posts in chronological order for context
+      const threadContent = context.posts
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(post => post.content)
+        .join('\n\n');
+
+      contentToAnalyze = threadContent;
+
+      logger.debug('Extracting claims from thread (mention has parent)', {
+        postCount: context.posts.length,
+        contentLength: contentToAnalyze.length
+      });
+    } else {
+      // Mention is a top-level post - analyze just the content, removing bot mention
+      // The mention contains the bot's public key (pk:xxxxx format)
+      contentToAnalyze = mentionPost.content
+        .replace(/pk:[a-z0-9]+/gi, '')  // Remove bot's public key
+        .replace(/@[a-z0-9-]+/gi, '')   // Remove any @mentions
+        .trim();
+
+      logger.debug('Extracting claims from direct mention (no parent)', {
+        originalLength: mentionPost.content.length,
+        cleanedLength: contentToAnalyze.length
+      });
+    }
+
+    const claims = await this.extractClaimsWithAI(contentToAnalyze);
 
     logger.debug('Claims extracted', {
       claimCount: claims.length,
@@ -266,34 +287,7 @@ export class FactcheckService {
   }
 
   private async extractClaimsWithAI(text: string): Promise<Claim[]> {
-    const prompt = `Extract ONLY verifiable factual claims from the following text.
-
-A factual claim is a statement that can be verified as true or false through evidence, data, or reliable sources.
-
-INCLUDE claims that:
-- State specific facts, statistics, or data points
-- Make assertions about events, people, or organizations
-- Describe scientific or medical findings
-- Report on actions, policies, or statements by public figures
-- Make comparisons that can be fact-checked
-
-EXCLUDE:
-- Opinions, beliefs, or subjective statements (e.g., "I think", "I believe")
-- Predictions or future speculations (e.g., "might", "could", "will probably")
-- Value judgments (e.g., "best", "worst", "should")
-- Vague or unverifiable statements
-- Questions or hypotheticals
-- Personal experiences or anecdotes
-
-Text to analyze:
-"${text}"
-
-Return a JSON object with an array of claims. For each claim, provide:
-- text: The exact factual claim (preserve original wording when possible)
-- confidence: Score from 0-1 indicating how clearly this is a verifiable factual claim
-- context: Any important context needed to understand the claim (optional)
-
-Focus on the most significant and checkable claims. Ignore trivial or obvious facts.`;
+    const prompt = SecurePrompts.buildClaimExtractionPrompt(text);
 
     const result = await this.aiService.generateObject<z.infer<typeof ClaimsExtractionSchema>>(
       prompt,
@@ -406,21 +400,8 @@ Focus on the most significant and checkable claims. Ignore trivial or obvious fa
     let searchCount = 0;
     const evidence: Evidence[] = [];
 
-    // Build a direct, findings-focused prompt for structured output
-    const prompt = `Fact-check this claim by searching for evidence and reporting your findings directly:
-
-"${claim.text}"
-
-Instructions:
-1. Search for evidence using the brave_web_search tool
-2. Report what you found in 2-3 clear, conversational sentences
-3. Focus on the actual findings from your search, not meta-commentary
-4. Be specific about what sources say, using natural language
-5. If you find conflicting information, explain both perspectives naturally
-
-DO NOT say things like "I verified X claims" or "Based on my search" - just report the findings directly.
-Example good response: "The EU's Radio Spectrum Policy Group is indeed considering splitting the 6 GHz band between mobile and WiFi uses, according to their November 2024 draft opinion."
-Example bad response: "I searched for evidence about this claim and found multiple sources confirming..."`;
+    // Build secure factcheck prompt
+    const prompt = SecurePrompts.buildFactcheckPrompt(claim.text, claim.context);
 
     try {
       // Use AI with MCP tools to verify the claim and get structured output
@@ -432,25 +413,15 @@ Example bad response: "I searched for evidence about this claim and found multip
 
       // Log the structured result
       logger.debug('Structured verification result', {
-        narrativeLength: result.object.narrativeSummary.length,
-        confidence: result.object.confidence,
-        hasAlternatives: result.object.alternativePerspectives ? result.object.alternativePerspectives.length : 0
+        narrativeLength: result.object.narrativeSummary.length
       });
-
-      // Map confidence from enum to number
-      const confidenceMap = {
-        'high': 0.8,
-        'medium': 0.5,
-        'low': 0.3
-      };
 
       const verification: VerifiedClaim = {
         claim: claim.text,
         verdict: result.object.narrativeSummary, // Use narrative as verdict
-        confidence: confidenceMap[result.object.confidence],
+        confidence: 0.5, // Default confidence
         evidence: evidence.slice(0, 3),
-        reasoning: result.object.narrativeSummary, // Also store in reasoning
-        alternativePerspectives: result.object.alternativePerspectives
+        reasoning: result.object.narrativeSummary // Also store in reasoning
       };
 
       return {
@@ -512,19 +483,8 @@ Example bad response: "I searched for evidence about this claim and found multip
     // Initialize evidence tracking
     const evidence: Evidence[] = [];
 
-    // Build direct, findings-focused prompt
-    const prompt = `Search for evidence about this claim and report your findings directly: "${claim.text}"
-
-Use the brave_web_search tool to find evidence.
-
-Respond with your findings in a natural, conversational way. Start directly with what you found - for example: "The EU's Radio Spectrum Policy Group is indeed considering..." or "Multiple sources confirm that..." or "According to Reuters and BBC..."
-
-Include:
-- What the evidence shows (2-3 sentences)
-- How confident you are based on source quality
-- Any conflicting information if relevant
-
-DO NOT include meta-commentary like "I searched for" or "I found X sources" or "Based on my search". Just state the findings directly as facts from the sources.`;
+    // Build secure factcheck prompt
+    const prompt = SecurePrompts.buildFactcheckPrompt(claim.text, claim.context);
 
     // Generate verification with required tool usage
     const result = await this.verifyWithRetry(claim, tools, prompt);
@@ -909,43 +869,15 @@ DO NOT include meta-commentary like "I searched for" or "I found X sources" or "
       logger.debug('Using direct response as narrative', { length: narrative.length });
     }
 
-    // Extract confidence from natural language (no headers expected)
+    // Use default confidence based on evidence quality
     let confidenceScore = 0.5; // Default medium
-    const perspectives: string[] = [];
-
-    // Look for confidence expressions in the text
-    const lowerResponse = aiResponse.toLowerCase();
-    if (lowerResponse.includes('strongly confirm') || lowerResponse.includes('definitively') ||
-        lowerResponse.includes('clearly shows') || lowerResponse.includes('conclusive')) {
-      confidenceScore = 0.8;
-      logger.debug('High confidence detected from language');
-    } else if (lowerResponse.includes('appears to') || lowerResponse.includes('suggests') ||
-               lowerResponse.includes('likely') || lowerResponse.includes('seems')) {
-      confidenceScore = 0.5;
-      logger.debug('Medium confidence detected from language');
-    } else if (lowerResponse.includes('limited evidence') || lowerResponse.includes('unclear') ||
-               lowerResponse.includes('disputed') || lowerResponse.includes('conflicting')) {
-      confidenceScore = 0.3;
-      logger.debug('Low confidence detected from language');
-    }
-
-    // Look for alternative viewpoints mentioned naturally
-    if (lowerResponse.includes('however') || lowerResponse.includes('on the other hand') ||
-        lowerResponse.includes('alternatively') || lowerResponse.includes('critics argue')) {
-      // Extract the contrasting viewpoint if mentioned
-      const contrastMatch = aiResponse.match(/(?:however|on the other hand|alternatively|critics argue)[\s,]+(.+?)(?:\.|$)/i);
-      if (contrastMatch) {
-        perspectives.push(contrastMatch[1].trim());
-      }
-    }
 
     // Adjust based on evidence quality if available
     if (evidence.length >= 3) {
       const avgReliability = evidence.reduce((sum, e) => sum + e.reliability, 0) / evidence.length;
-      // Weighted average: LLM confidence (60%) + evidence reliability (40%)
-      confidenceScore = (confidenceScore * 0.6) + (avgReliability * 0.4);
+      confidenceScore = avgReliability;
     } else if (evidence.length === 0) {
-      confidenceScore = Math.min(confidenceScore, 0.3); // Cap at low if no evidence
+      confidenceScore = 0.3; // Lower confidence if no evidence
     }
 
     return {
@@ -953,8 +885,7 @@ DO NOT include meta-commentary like "I searched for" or "I found X sources" or "
       verdict: narrative, // Use narrative as the verdict
       confidence: Math.min(Math.max(confidenceScore, 0.1), 1.0), // Clamp between 0.1 and 1.0
       evidence: evidence.slice(0, 3), // Top 3 pieces of evidence
-      reasoning: narrative, // Also store in reasoning for compatibility
-      alternativePerspectives: perspectives.length > 0 ? perspectives : undefined
+      reasoning: narrative // Also store in reasoning for compatibility
     };
   }
 
@@ -1087,10 +1018,7 @@ DO NOT include meta-commentary like "I searched for" or "I found X sources" or "
       verdict: narrative,
       confidence,
       evidence: evidence.slice(0, 3),
-      reasoning,
-      alternativePerspectives: evidence.length > 1
-        ? [`Multiple sources were found with varying perspectives from: ${evidence.map(e => e.perspective || 'unknown').filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(', ')}`]
-        : undefined
+      reasoning
     };
   }
 }
