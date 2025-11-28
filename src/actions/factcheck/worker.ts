@@ -96,7 +96,9 @@ export class FactcheckWorker {
         runId
       });
 
-      const threadContext = await this.threadService.buildThreadContext(data.postId);
+      const threadContext = await this.threadService.buildThreadContext(data.postId, {
+        mentionId: data.mentionId
+      });
 
       // Extract claims from thread
       logger.debug('Extracting claims for verification', {
@@ -229,7 +231,54 @@ export class FactcheckWorker {
 
       return { success: true, executionId };
 
-    } catch (error) {
+    } catch (error: any) {
+      // Check if the error is due to a confirmed deleted post (404)
+      if (error?.code === 'POST_DELETED') {
+        logger.info('Post confirmed deleted (404), marking mention accordingly', {
+          mentionId: data.mentionId,
+          postId: data.postId
+        });
+
+        // Update mention status to indicate post was deleted
+        try {
+          await db.query(
+            `UPDATE mentions
+             SET status = 'failed',
+                 error_type = 'post_deleted',
+                 last_error = $2
+             WHERE mention_id = $1`,
+            [data.mentionId, 'Post deleted (404)']
+          );
+        } catch (updateError) {
+          logger.error('Failed to update mention status for deleted post:', updateError);
+        }
+      } else {
+        // Check if the error is due to a post not being available (other errors)
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isPostUnavailable = errorMessage.includes('Post not available');
+
+        if (isPostUnavailable) {
+          logger.warn('Post not available (temporary error, not 404)', {
+            mentionId: data.mentionId,
+            postId: data.postId
+          });
+
+          // Update mention status to indicate post fetch failed
+          // Do NOT use 'post_deleted' error type as it's not a 404
+          try {
+            await db.query(
+              `UPDATE mentions
+               SET status = 'failed',
+                   last_error = $2
+               WHERE mention_id = $1`,
+              [data.mentionId, 'Post not available - will retry later']
+            );
+          } catch (updateError) {
+            logger.error('Failed to update mention status:', updateError);
+          }
+        }
+      }
+
       // Update execution with error
       await this.failActionExecution(executionId, error);
       endActionTimer();

@@ -463,6 +463,36 @@ export class MentionPoller {
   }
 
   private async ingestMention(mention: Mention): Promise<boolean> {
+    // Check if the post is already marked as deleted
+    const deletedCheck = await db.query(
+      'SELECT id FROM deleted_posts WHERE post_uri = $1',
+      [mention.postId]
+    );
+
+    if (deletedCheck.rows.length > 0) {
+      logger.info('Skipping mention for already-deleted post', {
+        mentionId: mention.mentionId,
+        postId: mention.postId
+      });
+
+      // Store the mention but mark it as failed due to deleted post
+      await db.query(
+        `INSERT INTO mentions (mention_id, post_id, author_id, content, url, received_at, status, error_type, last_error)
+         VALUES ($1, $2, $3, $4, $5, $6, 'failed', 'post_deleted', 'Post already marked as deleted')
+         ON CONFLICT (mention_id) DO NOTHING`,
+        [
+          mention.mentionId,
+          mention.postId,
+          mention.authorId,
+          mention.content,
+          mention.url,
+          mention.receivedAt
+        ]
+      );
+
+      return false; // Don't emit event for deleted posts
+    }
+
     // Store mention in database
     await this.storeMention(mention);
 

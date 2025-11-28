@@ -541,12 +541,29 @@ export class PubkyService {
             await new Promise(res => setTimeout(res, 250 * attempt));
             continue;
           }
+
+          // Check for 404 Not Found - this means the post is deleted
+          const is404 = /\b404\b.*Not Found/i.test(msg) || e?.data?.statusCode === 404;
+          if (is404) {
+            // Throw a specific error for deleted posts that can be caught upstream
+            const deletedError = new Error(`Post deleted: ${postUri}`);
+            (deletedError as any).code = 'POST_DELETED';
+            (deletedError as any).statusCode = 404;
+            throw deletedError;
+          }
+
           throw e;
         }
       }
       return null;
     } catch (error: any) {
       const msg = String(error?.message || error);
+
+      // Re-throw POST_DELETED errors so they can be handled specifically
+      if (error?.code === 'POST_DELETED') {
+        throw error;
+      }
+
       if (/\b502\b|Bad Gateway/i.test(msg)) {
         logger.warn(`Failed to fetch post ${postUri}: 502 Bad Gateway`);
       } else {
@@ -583,6 +600,17 @@ export class PubkyService {
             await new Promise(res => setTimeout(res, 250 * attempt));
             continue;
           }
+
+          // Check for 404 Not Found - this means the post is deleted
+          const is404 = /\b404\b.*Not Found/i.test(msg) || e?.data?.statusCode === 404;
+          if (is404) {
+            // Throw a specific error for deleted posts that can be caught upstream
+            const deletedError = new Error(`Post deleted: ${postUri}`);
+            (deletedError as any).code = 'POST_DELETED';
+            (deletedError as any).statusCode = 404;
+            throw deletedError;
+          }
+
           throw e;
         }
       }
@@ -616,6 +644,12 @@ export class PubkyService {
 
     } catch (error: any) {
       const msg = String(error?.message || error);
+
+      // Re-throw POST_DELETED errors so they can be handled specifically
+      if (error?.code === 'POST_DELETED') {
+        throw error;
+      }
+
       if (/\b502\b|Bad Gateway/i.test(msg)) {
         logger.warn('Failed to fetch post: 502 Bad Gateway');
       } else {
