@@ -25,9 +25,18 @@ ADD COLUMN IF NOT EXISTS error_type TEXT;
 -- This is optional but recommended for data integrity
 COMMENT ON COLUMN mentions.error_type IS 'Type of error: post_deleted, api_error, timeout, etc.';
 
--- Optional: Add a check constraint for valid error types
-ALTER TABLE mentions
-ADD CONSTRAINT check_error_type CHECK (
-  error_type IS NULL OR
-  error_type IN ('post_deleted', 'api_error', 'timeout', 'network_error', 'validation_error')
-);
+-- Add a check constraint for valid error types (only if it doesn't exist)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'check_error_type'
+    AND conrelid = 'mentions'::regclass
+  ) THEN
+    ALTER TABLE mentions
+    ADD CONSTRAINT check_error_type CHECK (
+      error_type IS NULL OR
+      error_type IN ('post_deleted', 'api_error', 'timeout', 'network_error', 'validation_error')
+    );
+  END IF;
+END $$;
