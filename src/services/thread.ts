@@ -130,7 +130,7 @@ export class ThreadService {
         'SELECT id FROM deleted_posts WHERE post_uri = $1',
         [postUri]
       );
-      return result.rows.length > 0;
+      return result.length > 0;
     } catch (error) {
       logger.error('Failed to check deleted post status:', error);
       return false;

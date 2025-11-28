@@ -471,8 +471,8 @@ export class MentionPoller {
         [mention.postId]
       );
 
-      // Check if result exists and has rows property
-      isDeleted = deletedCheck && deletedCheck.rows && deletedCheck.rows.length > 0;
+      // Check if result exists and has any rows
+      isDeleted = deletedCheck && deletedCheck.length > 0;
     } catch (error) {
       // If the table doesn't exist or query fails, assume not deleted
       logger.debug('Failed to check deleted posts table (table may not exist yet):', error);
