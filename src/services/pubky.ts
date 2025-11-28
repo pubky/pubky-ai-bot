@@ -375,8 +375,21 @@ export class PubkyService {
             }
             seenPostUris.add(postUri);
 
-            const postData = await this.getPost(postUri);
+            let postData;
+            try {
+              postData = await this.getPost(postUri);
+            } catch (error: any) {
+              if (error?.code === 'POST_DELETED') {
+                logger.info(`Skipping deleted post in mention: ${postUri}`);
+                continue;  // Skip this mention silently
+              }
+              // For other errors, log and skip
+              logger.warn(`Failed to fetch post for mention: ${postUri}`, error);
+              continue;
+            }
+
             if (!postData) {
+              // This shouldn't happen anymore since errors are thrown, but keep as safety
               logger.warn(`Failed to fetch post data for: ${postUri}`);
               continue;
             }
