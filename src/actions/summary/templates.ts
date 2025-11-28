@@ -22,10 +22,6 @@ export class SummaryTemplates {
       replyContent.keyPoints = keyPoints;
     }
 
-    // Add confidence indicator for low confidence summaries
-    if (metrics.confidence === 'low') {
-      replyContent.summary += '\n\nWARNING: Summary may be incomplete due to thread size or complexity.';
-    }
 
     return replyContent;
   }
